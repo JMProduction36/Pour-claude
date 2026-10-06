@@ -2,11 +2,13 @@ package fr.jmproduction.pocketdoor.network;
 
 import fr.jmproduction.pocketdoor.PocketDoorMod;
 import fr.jmproduction.pocketdoor.block.ModBlocks;
+import fr.jmproduction.pocketdoor.block.TypewriterBlockEntity;
 import fr.jmproduction.pocketdoor.data.PocketDoorSavedData;
 import fr.jmproduction.pocketdoor.dimension.PocketDimensions;
 import fr.jmproduction.pocketdoor.dimension.PocketDoorPortal;
 import fr.jmproduction.pocketdoor.dimension.ImmersivePortalBridge;
 import fr.jmproduction.pocketdoor.dimension.PocketOfficeGenerator;
+import fr.jmproduction.pocketdoor.dimension.PocketDoorPortal;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.BlockPos;
@@ -14,6 +16,9 @@ import net.minecraft.core.Direction;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -36,6 +41,12 @@ public final class ModNetworking {
     public static final ResourceLocation SET_TELEPORT_TARGET =
             new ResourceLocation(PocketDoorMod.MOD_ID, "set_teleport_target");
 
+    public static final ResourceLocation FINISH_TYPEWRITER =
+            new ResourceLocation(PocketDoorMod.MOD_ID, "finish_typewriter");
+
+    public static final ResourceLocation OPEN_TYPEWRITER =
+            new ResourceLocation(PocketDoorMod.MOD_ID, "open_typewriter");
+
     private ModNetworking() {
     }
 
@@ -54,6 +65,20 @@ public final class ModNetworking {
             int z = buf.readInt();
             server.execute(() -> setTeleportTarget(player, x, z));
         });
+
+        ServerPlayNetworking.registerGlobalReceiver(FINISH_TYPEWRITER,
+                (server, player, handler, buf, responseSender) -> {
+                    BlockPos pos = buf.readBlockPos();
+                    InteractionHand hand = buf.readEnum(InteractionHand.class);
+                    server.execute(() -> finishTypewriter(player, pos, hand));
+                });
+
+        ServerPlayNetworking.registerGlobalReceiver(OPEN_TYPEWRITER,
+                (server, player, handler, buf, responseSender) -> {
+                    BlockPos pos = buf.readBlockPos();
+                    InteractionHand hand = buf.readEnum(InteractionHand.class);
+                    server.execute(() -> openTypewriterBook(player, pos, hand));
+                });
     }
 
     public static FriendlyByteBuf createTogglePacket(BlockPos target, Direction hitFace) {
@@ -72,6 +97,49 @@ public final class ModNetworking {
         buf.writeInt(x);
         buf.writeInt(z);
         return buf;
+    }
+
+    public static FriendlyByteBuf createFinishTypewriterPacket(BlockPos pos, InteractionHand hand) {
+        FriendlyByteBuf buf = PacketByteBufs.create();
+        buf.writeBlockPos(pos);
+        buf.writeEnum(hand);
+        return buf;
+    }
+
+    public static void openTypewriterBook(ServerPlayer player, BlockPos pos, InteractionHand hand) {
+        if (player.distanceToSqr(pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D) > 64.0D) {
+            return;
+        }
+
+        BlockEntity blockEntity = player.getLevel().getBlockEntity(pos);
+        if (!(blockEntity instanceof TypewriterBlockEntity typewriter) || !typewriter.hasBook()) {
+            return;
+        }
+
+        ItemStack book = typewriter.takeBook();
+        player.setItemInHand(hand, book);
+        FriendlyByteBuf buf = PacketByteBufs.create();
+        buf.writeBlockPos(pos);
+        buf.writeEnum(hand);
+        buf.writeItem(book.copy());
+        ServerPlayNetworking.send(player, OPEN_TYPEWRITER, buf);
+    }
+
+    private static void finishTypewriter(ServerPlayer player, BlockPos pos, InteractionHand hand) {
+        if (player.distanceToSqr(pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D) > 64.0D) {
+            return;
+        }
+
+        BlockEntity blockEntity = player.getLevel().getBlockEntity(pos);
+        if (!(blockEntity instanceof TypewriterBlockEntity typewriter)) {
+            return;
+        }
+
+        ItemStack book = player.getItemInHand(hand);
+        if (typewriter.acceptsBook(book)) {
+            typewriter.setBook(book.copy());
+            player.setItemInHand(hand, ItemStack.EMPTY);
+        }
     }
 
     public static void removeStoredDoor(ServerPlayer player) {
@@ -156,6 +224,11 @@ public final class ModNetworking {
         }
 
         BlockPos destination = new BlockPos(x, y, z);
+        if (!overworld.getWorldBorder().isWithinBounds(destination)
+                || y < overworld.getMinBuildHeight() || y + 1 >= overworld.getMaxBuildHeight()) {
+            player.displayClientMessage(Component.literal("Destination impossible ici."), true);
+            return;
+        }
         BlockState destinationLower = overworld.getBlockState(destination);
         BlockState destinationUpper = overworld.getBlockState(destination.above());
 
@@ -222,7 +295,10 @@ public final class ModNetworking {
         ServerLevel pocket = player.getServer().getLevel(PocketDimensions.POCKET_OFFICE);
         if (pocket != null) {
             PocketOfficeGenerator.ensureGenerated(pocket);
-            ImmersivePortalBridge.open(overworld, destination, facing, pocket);
+            if (PocketDoorPortal.isDoorOpen(pocket, PocketOfficeGenerator.POCKET_DOOR_LOWER)) {
+                PocketDoorPortal.setOpen(pocket, PocketOfficeGenerator.POCKET_DOOR_LOWER, false);
+            }
+            ImmersivePortalBridge.close(overworld, destination);
         }
 
         player.displayClientMessage(Component.literal(

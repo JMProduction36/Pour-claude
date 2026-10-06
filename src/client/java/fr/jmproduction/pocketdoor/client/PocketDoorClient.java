@@ -2,7 +2,10 @@ package fr.jmproduction.pocketdoor.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.blockentity.BlockEntityRenderers;
+import fr.jmproduction.pocketdoor.block.ModBlockEntities;
 import fr.jmproduction.pocketdoor.block.ModBlocks;
+import fr.jmproduction.pocketdoor.block.ModItemGroups;
 import fr.jmproduction.pocketdoor.dimension.PocketDimensions;
 import fr.jmproduction.pocketdoor.dimension.PocketOfficeGenerator;
 import fr.jmproduction.pocketdoor.network.ModNetworking;
@@ -10,6 +13,8 @@ import qouteall.imm_ptl.core.ClientWorldLoader;
 import qouteall.imm_ptl.core.portal.Portal;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.fabric.api.client.rendering.v1.BuiltinItemRendererRegistry;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.level.block.Blocks;
@@ -55,6 +60,24 @@ public class PocketDoorClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         PocketMapState.load(Minecraft.getInstance());
+        BlockEntityRenderers.register(ModBlockEntities.TYPEWRITER, TypewriterBlockEntityRenderer::new);
+        ModItemGroups.initialize();
+        BuiltinItemRendererRegistry.INSTANCE.register(ModBlocks.TYPEWRITER,
+                (stack, mode, poseStack, buffers, light, overlay) ->
+                        TypewriterBlockEntityRenderer.renderItem(stack, poseStack, buffers, light, overlay));
+        ClientPlayNetworking.registerGlobalReceiver(ModNetworking.OPEN_TYPEWRITER,
+                (client, handler, buf, responseSender) -> {
+                    var pos = buf.readBlockPos();
+                    var hand = buf.readEnum(net.minecraft.world.InteractionHand.class);
+                    var book = buf.readItem();
+                    client.execute(() -> {
+                        if (book.is(net.minecraft.world.item.Items.WRITABLE_BOOK)) {
+                            client.setScreen(new TypewriterScreens.Edit(client.player, book, hand, pos));
+                        } else if (book.is(net.minecraft.world.item.Items.WRITTEN_BOOK)) {
+                            client.setScreen(new TypewriterScreens.Read(book, hand, pos));
+                        }
+                    });
+                });
         registerMapInteraction();
         registerBrokenTimekeepers();
         // Portal rendering is now delegated to Immersive Portals Core.
@@ -111,6 +134,13 @@ public class PocketDoorClient implements ClientModInitializer {
                 }
             }
         });
+    }
+
+    private static net.minecraft.world.item.ItemStack readTypewriterBook(net.minecraft.world.item.ItemStack stack) {
+        net.minecraft.nbt.CompoundTag blockEntityTag = stack.getTagElement("BlockEntityTag");
+        return blockEntityTag != null && blockEntityTag.contains("Book", 10)
+                ? net.minecraft.world.item.ItemStack.of(blockEntityTag.getCompound("Book"))
+                : net.minecraft.world.item.ItemStack.EMPTY;
     }
 
     private static void registerMapInteraction() {

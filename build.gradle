@@ -76,6 +76,147 @@ tasks.register("prepareImmersivePortals") {
     }
 }
 
+tasks.register("exportTypewriterMeshes") {
+    inputs.files(
+        file("blockbench/Machine_a_ecrire.bbmodel"),
+        file("blockbench/Machine_a_ecrire_sans_papier.bbmodel")
+    )
+    outputs.files(
+        file("src/main/resources/assets/pocketdoor/typewriter_model.pdmesh"),
+        file("src/main/resources/assets/pocketdoor/typewriter_model_empty.pdmesh")
+    )
+
+    doLast {
+        def exportMesh = { File source, File target ->
+            def model = new groovy.json.JsonSlurper().parse(source)
+            def elementsByUuid = model.elements.collectEntries { element -> [(element.uuid): element] }
+            def orderedElements = []
+            def visitOutliner
+            visitOutliner = { nodes ->
+                nodes.each { node ->
+                    if (node instanceof String) {
+                        if (elementsByUuid.containsKey(node)) orderedElements.add(elementsByUuid[node])
+                    } else if (node instanceof Map) {
+                        visitOutliner(node.children ?: [])
+                    }
+                }
+            }
+            visitOutliner(model.outliner ?: [])
+            if (orderedElements.isEmpty()) orderedElements.addAll(model.elements)
+
+            def faces = []
+            def allVertices = []
+            def rotatePoint = { point, origin, rotation ->
+                def result = (0..2).collect { axis -> (point[axis] as double) - (origin[axis] as double) }
+                rotation.eachWithIndex { degrees, axis ->
+                    double radians = Math.toRadians(degrees as double)
+                    double cosine = Math.cos(radians)
+                    double sine = Math.sin(radians)
+                    if (axis == 0) {
+                        double y = result[1] * cosine - result[2] * sine
+                        result[2] = result[1] * sine + result[2] * cosine
+                        result[1] = y
+                    } else if (axis == 1) {
+                        double x = result[0] * cosine + result[2] * sine
+                        result[2] = -result[0] * sine + result[2] * cosine
+                        result[0] = x
+                    } else {
+                        double x = result[0] * cosine - result[1] * sine
+                        result[1] = result[0] * sine + result[1] * cosine
+                        result[0] = x
+                    }
+                }
+                (0..2).each { axis -> result[axis] += origin[axis] as double }
+                result
+            }
+            def cross = { a, b ->
+                [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+            }
+            def normalize = { vector ->
+                double length = Math.sqrt(vector.collect { it * it }.sum() as double)
+                length == 0.0d ? [0.0d, 1.0d, 0.0d] : vector.collect { it / length }
+            }
+
+            orderedElements.each { element ->
+                if (element.export == false || element.visibility == false) return
+                def origin = element.origin ?: [0.0d, 0.0d, 0.0d]
+                def rotation = element.rotation ?: [0.0d, 0.0d, 0.0d]
+                element.faces.each { faceId, face ->
+                    if (!(face.texture instanceof Number)) return
+                    int textureIndex = face.texture as int
+                    if (textureIndex < 0 || textureIndex >= 8) return
+                    def uvMap = face.uv ?: [:]
+                    def transformed = []
+                    face.vertices.each { vertexId ->
+                        def point = element.vertices[vertexId]
+                        def uv = uvMap[vertexId]
+                        if (point != null && uv != null) {
+                            def position = rotatePoint(point, origin, rotation)
+                            transformed.add([position[0], position[1], position[2], (uv[0] as double) / 16.0d, (uv[1] as double) / 16.0d])
+                        }
+                    }
+                    if (transformed.size() < 3) return
+                    for (int vertexIndex = 1; vertexIndex < transformed.size() - 1; vertexIndex++) {
+                        def triangle = [transformed[0], transformed[vertexIndex], transformed[vertexIndex + 1]]
+                        def edgeA = (0..2).collect { axis -> triangle[1][axis] - triangle[0][axis] }
+                        def edgeB = (0..2).collect { axis -> triangle[2][axis] - triangle[0][axis] }
+                        def normal = normalize(cross(edgeA, edgeB))
+                        faces.add([textureIndex, normal, triangle])
+                        allVertices.addAll(triangle)
+                    }
+                }
+            }
+            if (faces.isEmpty()) throw new GradleException("No typewriter mesh faces exported from " + source)
+
+            double minX = allVertices.collect { it[0] as double }.min()
+            double maxX = allVertices.collect { it[0] as double }.max()
+            double minY = allVertices.collect { it[1] as double }.min()
+            double maxY = allVertices.collect { it[1] as double }.max()
+            double minZ = allVertices.collect { it[2] as double }.min()
+            double maxZ = allVertices.collect { it[2] as double }.max()
+            double height = maxY - minY
+            if (height <= 0.0d) throw new GradleException("Invalid typewriter mesh height in " + source)
+            double centerX = (minX + maxX) * 0.5d
+            double centerZ = (minZ + maxZ) * 0.5d
+
+            target.parentFile.mkdirs()
+            target.withOutputStream { raw ->
+                def output = new DataOutputStream(raw)
+                output.writeBytes("PDM1")
+                output.writeInt(8)
+                ["typewriter_0.png", "typewriter_1.png", "typewriter_2.png", "typewriter_3.png",
+                 "typewriter_4.png", "typewriter_5.png", "typewriter_7.png", "typewriter_8.png"].each { texture ->
+                    byte[] encoded = texture.getBytes("UTF-8")
+                    output.writeShort(encoded.length)
+                    output.write(encoded)
+                }
+                output.writeInt(faces.size())
+                faces.each { face ->
+                    output.writeInt(face[0] as int)
+                    face[1].each { output.writeFloat(it as float) }
+                    output.writeInt(face[2].size())
+                    face[2].each { vertex ->
+                        output.writeFloat((((vertex[0] as double) - minX) / height * 16.0d) as float)
+                        output.writeFloat((((vertex[1] as double) - minY) / height * 16.0d) as float)
+                        output.writeFloat((((vertex[2] as double) - minZ) / height * 16.0d) as float)
+                        output.writeFloat(vertex[3] as float)
+                        output.writeFloat(vertex[4] as float)
+                    }
+                }
+                output.flush()
+            }
+        }
+
+        def assets = file("src/main/resources/assets/pocketdoor")
+        exportMesh(file("blockbench/Machine_a_ecrire.bbmodel"), new File(assets, "typewriter_model.pdmesh"))
+        exportMesh(file("blockbench/Machine_a_ecrire_sans_papier.bbmodel"), new File(assets, "typewriter_model_empty.pdmesh"))
+    }
+}
+
+tasks.named("processResources") {
+    dependsOn(tasks.named("exportTypewriterMeshes"))
+}
+
 tasks.withType(JavaCompile).configureEach {
     dependsOn(tasks.named("prepareImmersivePortals"))
 }

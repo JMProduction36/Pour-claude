@@ -1,5 +1,8 @@
 {
   "variants": {
-    "": { "model": "pocketdoor:block/typewriter" }
+    "facing=north": { "model": "pocketdoor:block/typewriter", "y": 90 },
+    "facing=south": { "model": "pocketdoor:block/typewriter", "y": 270 },
+    "facing=east": { "model": "pocketdoor:block/typewriter", "y": 180 },
+    "facing=west": { "model": "pocketdoor:block/typewriter", "y": 0 }
   }
 }

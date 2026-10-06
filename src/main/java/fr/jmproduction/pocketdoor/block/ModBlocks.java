@@ -33,13 +33,28 @@ public final class ModBlocks {
                     .strength(0.2F))
     );
 
+    public static final Block TYPEWRITER = register(
+            "typewriter",
+            new TypewriterBlock(BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK)
+                    .strength(2.0F)),
+            true
+    );
+
     private ModBlocks() {
     }
 
     private static Block register(String name, Block block) {
+        return register(name, block, false);
+    }
+
+    private static Block register(String name, Block block, boolean includeInItemGroup) {
         ResourceLocation id = new ResourceLocation(PocketDoorMod.MOD_ID, name);
         Registry.register(Registry.BLOCK, id, block);
-        Registry.register(Registry.ITEM, id, new BlockItem(block, new Item.Properties()));
+        Registry.register(Registry.ITEM, id, new BlockItem(block,
+                includeInItemGroup ? new Item.Properties().tab(ModItemGroups.POCKETDOOR) : new Item.Properties()));
+        if (includeInItemGroup) {
+            ModItemGroups.add(block);
+        }
         return block;
     }
 
@@ -52,4 +67,5 @@ public final class ModBlocks {
     public static void initialize() {
         PocketDoorMod.LOGGER.info("Registered Pocket Door blocks and pocket-office blocks.");
     }
+
 }

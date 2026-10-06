@@ -29,6 +29,11 @@ public final class PocketTeleportMapScreen extends Screen {
     private int selectedX;
     private int selectedZ;
     private boolean hasSelection;
+    private boolean draggingMap;
+    private double panRemainderX;
+    private double panRemainderZ;
+    private double dragMouseX;
+    private double dragMouseY;
 
     public PocketTeleportMapScreen() {
         super(Component.literal("Carte de téléportation"));
@@ -150,8 +155,8 @@ public final class PocketTeleportMapScreen extends Screen {
 
     private void drawHoverCell(PoseStack poseStack, int worldX, int worldZ) {
         double totalBlocks = MAP_CELLS * (double) blocksPerCell;
-        double relX = (worldX - centerX + 0.5D) / totalBlocks;
-        double relZ = (worldZ - centerZ + 0.5D) / totalBlocks;
+        double relX = (worldX - centerX) / totalBlocks;
+        double relZ = (worldZ - centerZ) / totalBlocks;
         int px = mapLeft + (int) Math.floor((relX + 0.5D) * mapPixels);
         int pz = mapTop + (int) Math.floor((relZ + 0.5D) * mapPixels);
 
@@ -171,11 +176,11 @@ public final class PocketTeleportMapScreen extends Screen {
     }
 
     private int sampleWorldX(int screenX) {
-        return centerX + (screenX - MAP_CELLS / 2) * blocksPerCell;
+        return centerX + (screenX - (MAP_CELLS / 2 - 1)) * blocksPerCell;
     }
 
     private int sampleWorldZ(int screenZ) {
-        return centerZ + (screenZ - MAP_CELLS / 2) * blocksPerCell;
+        return centerZ + (screenZ - (MAP_CELLS / 2 - 1)) * blocksPerCell;
     }
 
     private boolean isMouseOverMap(double mouseX, double mouseY) {
@@ -190,23 +195,58 @@ public final class PocketTeleportMapScreen extends Screen {
         double normalizedX = (mouseX - mapLeft) / (double) mapPixels;
         double normalizedZ = (mouseY - mapTop) / (double) mapPixels;
         int worldWidth = MAP_CELLS * blocksPerCell;
-        int worldX = centerX + (int) Math.floor((normalizedX - 0.5D) * worldWidth);
-        int worldZ = centerZ + (int) Math.floor((normalizedZ - 0.5D) * worldWidth);
+        int worldX = centerX + (int) Math.floor((normalizedX - 0.5D) * worldWidth + blocksPerCell * 0.5D);
+        int worldZ = centerZ + (int) Math.floor((normalizedZ - 0.5D) * worldWidth + blocksPerCell * 0.5D);
         return new int[] {worldX, worldZ};
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == 0) {
-            int[] hovered = getWorldCoordinates(mouseX, mouseY);
-            if (hovered != null) {
-                selectedX = hovered[0];
-                selectedZ = hovered[1];
-                hasSelection = PocketMapState.hasDiscovered(selectedX, selectedZ);
-                return true;
-            }
+        if (button == 0 && isMouseOverMap(mouseX, mouseY)) {
+            draggingMap = true;
+            panRemainderX = 0.0D;
+            panRemainderZ = 0.0D;
+            dragMouseX = mouseX;
+            dragMouseY = mouseY;
+            return true;
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (button == 0 && draggingMap && isMouseOverMap(mouseX, mouseY)) {
+            double blocksPerPixel = (double) MAP_CELLS * blocksPerCell / mapPixels;
+            panRemainderX -= (mouseX - dragMouseX) * blocksPerPixel;
+            panRemainderZ -= (mouseY - dragMouseY) * blocksPerPixel;
+            int shiftX = (int) panRemainderX;
+            int shiftZ = (int) panRemainderZ;
+            centerX += shiftX;
+            centerZ += shiftZ;
+            panRemainderX -= shiftX;
+            panRemainderZ -= shiftZ;
+            dragMouseX = mouseX;
+            dragMouseY = mouseY;
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (button == 0 && draggingMap) {
+            draggingMap = false;
+            if (isMouseOverMap(mouseX, mouseY)) {
+                int[] hovered = getWorldCoordinates(mouseX, mouseY);
+                if (hovered != null) {
+                    selectedX = hovered[0];
+                    selectedZ = hovered[1];
+                    hasSelection = PocketMapState.hasDiscovered(selectedX, selectedZ);
+                }
+            }
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override

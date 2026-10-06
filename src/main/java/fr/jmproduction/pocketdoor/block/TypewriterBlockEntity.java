@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -31,17 +32,35 @@ public class TypewriterBlockEntity extends BlockEntity {
     public void setBook(ItemStack stack) {
         book = stack == null ? ItemStack.EMPTY : stack;
         setChanged();
+        if (level != null && !level.isClientSide) {
+            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
     }
 
     public ItemStack takeBook() {
         ItemStack result = book;
         book = ItemStack.EMPTY;
         setChanged();
+        if (level != null && !level.isClientSide) {
+            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
         return result;
     }
 
     public boolean acceptsBook(ItemStack stack) {
         return stack.is(Items.WRITABLE_BOOK) || stack.is(Items.WRITTEN_BOOK);
+    }
+
+    @Override
+    public void saveToItem(ItemStack stack) {
+        super.saveToItem(stack);
+        CompoundTag blockEntityTag = stack.getOrCreateTagElement("BlockEntityTag");
+        blockEntityTag.putBoolean("HasBook", !book.isEmpty());
+        if (!book.isEmpty()) {
+            CompoundTag bookTag = new CompoundTag();
+            book.save(bookTag);
+            blockEntityTag.put(BOOK_TAG, bookTag);
+        }
     }
 
     @Override
@@ -62,5 +81,23 @@ public class TypewriterBlockEntity extends BlockEntity {
         } else {
             book = ItemStack.EMPTY;
         }
+    }
+
+    @Override
+    public CompoundTag getUpdateTag() {
+        CompoundTag tag = super.getUpdateTag();
+        if (!book.isEmpty()) {
+            CompoundTag bookTag = new CompoundTag();
+            book.save(bookTag);
+            tag.put(BOOK_TAG, bookTag);
+        } else {
+            tag.remove(BOOK_TAG);
+        }
+        return tag;
+    }
+
+    @Override
+    public ClientboundBlockEntityDataPacket getUpdatePacket() {
+        return ClientboundBlockEntityDataPacket.create(this);
     }
 }

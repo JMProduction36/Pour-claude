@@ -15,6 +15,10 @@ import net.minecraft.world.level.block.Blocks;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -25,15 +29,20 @@ public final class PocketMapState {
     private static long lastCaptureTick = Long.MIN_VALUE;
     private static long lastSaveTick = Long.MIN_VALUE;
     private static boolean loaded;
+    private static String loadedWorldKey;
     private static double lastOverworldX;
     private static double lastOverworldZ;
 
     private PocketMapState() {}
 
     public static void tick(Minecraft client) {
-        if (!loaded) load(client);
         ClientLevel level = client.level;
         if (level == null || client.player == null) return;
+
+        String worldKey = worldKey(client);
+        if (!worldKey.equals(loadedWorldKey)) {
+            load(client);
+        }
 
         // JourneyMap-like discovery: as the player explores the Overworld, cache the
         // terrain of nearby loaded chunks. Unexplored chunks remain black on the map.
@@ -133,7 +142,14 @@ public final class PocketMapState {
     }
 
     public static void load(Minecraft client) {
-        if (loaded) return;
+        String worldKey = worldKey(client);
+        if (loaded && worldKey.equals(loadedWorldKey)) return;
+        CHUNKS.clear();
+        lastCaptureTick = Long.MIN_VALUE;
+        lastSaveTick = Long.MIN_VALUE;
+        lastOverworldX = 0.0D;
+        lastOverworldZ = 0.0D;
+        loadedWorldKey = worldKey;
         loaded = true;
         File file = file(client);
         if (!file.isFile()) return;
@@ -174,7 +190,30 @@ public final class PocketMapState {
         }
     }
 
+    private static String worldKey(Minecraft client) {
+        if (client.getSingleplayerServer() != null) {
+            Path worldPath = client.getSingleplayerServer().getWorldPath(
+                    net.minecraft.world.level.storage.LevelResource.ROOT);
+            return "world:" + client.gameDirectory.toPath().toAbsolutePath().relativize(worldPath.toAbsolutePath());
+        }
+        if (client.getCurrentServer() != null) {
+            return "server:" + client.getCurrentServer().ip;
+        }
+        return "unknown";
+    }
+
     private static File file(Minecraft client) {
-        return new File(client.gameDirectory, "config/pocketdoor_map.dat");
+        String key = worldKey(client);
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(key.getBytes(StandardCharsets.UTF_8));
+            StringBuilder name = new StringBuilder(64);
+            for (byte value : hash) {
+                name.append(Character.forDigit((value >> 4) & 0xF, 16));
+                name.append(Character.forDigit(value & 0xF, 16));
+            }
+            return new File(client.gameDirectory, "config/pocketdoor_maps/" + name + ".dat");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 }

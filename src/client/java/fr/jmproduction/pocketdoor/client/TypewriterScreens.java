@@ -3,7 +3,7 @@ package fr.jmproduction.pocketdoor.client;
 import fr.jmproduction.pocketdoor.network.ModNetworking;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.gui.screens.inventory.BookEditScreen;
-import net.minecraft.client.gui.screens.inventory.BookScreen;
+import net.minecraft.client.gui.screens.inventory.BookViewScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
@@ -39,13 +39,13 @@ public final class TypewriterScreens {
         }
     }
 
-    public static final class Read extends BookScreen {
+    public static final class Read extends BookViewScreen {
         private final BlockPos typewriterPos;
         private final InteractionHand hand;
         private boolean sent;
 
         public Read(ItemStack stack, InteractionHand hand, BlockPos typewriterPos) {
-            super(BookScreen.Contents.create(stack));
+            super(BookViewScreen.BookAccess.fromItem(stack));
             this.typewriterPos = typewriterPos.immutable();
             this.hand = hand;
         }

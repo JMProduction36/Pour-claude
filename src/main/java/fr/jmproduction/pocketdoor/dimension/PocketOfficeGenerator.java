@@ -2,6 +2,7 @@ package fr.jmproduction.pocketdoor.dimension;
 
 import fr.jmproduction.pocketdoor.PocketDoorMod;
 import fr.jmproduction.pocketdoor.block.ModBlocks;
+import fr.jmproduction.pocketdoor.block.TypewriterBlock;
 import fr.jmproduction.pocketdoor.data.PocketDoorSavedData;
 import fr.jmproduction.pocketdoor.data.PocketOfficeSavedData;
 import net.minecraft.core.BlockPos;
@@ -9,20 +10,18 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.decoration.Painting;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChainBlock;
 import net.minecraft.world.level.block.FenceBlock;
 import net.minecraft.world.level.block.LadderBlock;
 import net.minecraft.world.level.block.LanternBlock;
-import net.minecraft.world.level.block.LecternBlock;
 import net.minecraft.world.level.block.SlabBlock;
+import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.Half;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.level.block.DoorBlock;
-import net.minecraft.world.level.block.entity.LecternBlockEntity;
 
 import java.util.Optional;
 
@@ -70,9 +69,6 @@ public final class PocketOfficeGenerator {
 
         PocketOfficeSavedData data = PocketOfficeSavedData.get(level);
         if (data.isGenerated()) {
-            // Older worlds may already have the office marked as generated from a version
-            // that did not yet place the pocket-side door. Repair only the missing door
-            // blocks; do not regenerate or randomize the existing office.
             ensurePocketDoor(level);
             return;
         }
@@ -81,6 +77,7 @@ public final class PocketOfficeGenerator {
         generateShell(level);
         generateWindows(level);
         generateFurniture(level);
+        placeDeskLayout(level);
         generateWallDecorations(level);
         ensurePocketDoor(level);
 
@@ -149,49 +146,84 @@ public final class PocketOfficeGenerator {
     }
 
     private static void generateFurniture(ServerLevel level) {
-        // Large wooden desk at the back of the room, inspired by the user's reference:
-        // broad top, chunky supports, a bench in front, vanilla lectern and writable book.
-        final int deskMinX = 4;
-        final int deskMaxX = 12;
-        final int deskMinZ = 2;
-        final int deskMaxZ = 4;
+        BlockState plank = Blocks.CHAIN.defaultBlockState();
+        BlockState stair = Blocks.OAK_STAIRS.defaultBlockState()
+                .setValue(StairBlock.HALF, Half.TOP);
+        BlockState lantern = Blocks.LANTERN.defaultBlockState();
 
-        BlockState top = Blocks.OAK_SLAB.defaultBlockState()
-                .setValue(SlabBlock.TYPE, SlabType.TOP);
-        for (int x = deskMinX; x <= deskMaxX; x++) {
-            for (int z = deskMinZ; z <= deskMaxZ; z++) {
-                place(level, new BlockPos(x, 65, z), top);
+        for (int x = 5; x <= 11; x++) {
+            place(level, new BlockPos(x, 65, 4), plank);
+            place(level, new BlockPos(x, 65, 5), plank);
+            place(level, new BlockPos(x, 65, 6), plank);
+        }
+
+        place(level, new BlockPos(5, 66, 4), stair);
+        place(level, new BlockPos(6, 66, 4), stair);
+        place(level, new BlockPos(7, 66, 4), stair);
+        place(level, new BlockPos(8, 66, 4), stair);
+        place(level, new BlockPos(9, 66, 4), stair);
+        place(level, new BlockPos(10, 66, 4), stair);
+        place(level, new BlockPos(11, 66, 4), stair);
+        place(level, new BlockPos(5, 67, 4), lantern.setValue(LanternBlock.HANGING, true));
+
+        place(level, new BlockPos(5, 66, 5), stair);
+        place(level, new BlockPos(6, 66, 5), plank);
+        place(level, new BlockPos(7, 66, 5), plank);
+        place(level, new BlockPos(8, 66, 5), plank);
+        place(level, new BlockPos(9, 66, 5), plank);
+        place(level, new BlockPos(10, 66, 5), plank);
+        place(level, new BlockPos(11, 66, 5), stair);
+
+        place(level, new BlockPos(5, 66, 6), stair);
+        place(level, new BlockPos(6, 66, 6), plank);
+        place(level, new BlockPos(7, 66, 6), plank);
+        place(level, new BlockPos(8, 66, 6), stair);
+        place(level, new BlockPos(9, 66, 6), plank);
+        place(level, new BlockPos(10, 66, 6), plank);
+        place(level, new BlockPos(11, 66, 6), stair);
+
+        BlockPos typewriterPos = new BlockPos(8, 67, 6);
+        place(level, typewriterPos,
+                ModBlocks.TYPEWRITER.defaultBlockState().setValue(TypewriterBlock.FACING, Direction.NORTH));
+
+        for (int x = 6; x <= 10; x++) {
+            place(level, new BlockPos(x, 65, 8), Blocks.OAK_SLAB.defaultBlockState()
+                    .setValue(SlabBlock.TYPE, SlabType.TOP));
+        }
+        place(level, new BlockPos(8, 65, 8), ModBlocks.POCKET_CHAIR.defaultBlockState());
+    }
+
+    private static void placeDeskLayout(ServerLevel level) {
+        BlockState plank = Blocks.CHAIN.defaultBlockState();
+        BlockState stair = Blocks.OAK_STAIRS.defaultBlockState()
+                .setValue(StairBlock.HALF, Half.TOP);
+        BlockState lantern = Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, true);
+        for (int x = 5; x <= 11; x++) {
+            for (int z = 4; z <= 6; z++) {
+                place(level, new BlockPos(x, 65, z), plank);
             }
         }
+        for (int x = 5; x <= 11; x++) place(level, new BlockPos(x, 66, 4), stair);
+        place(level, new BlockPos(5, 67, 4), lantern);
 
-        // Desk supports at the four corners and center rear.
-        BlockState support = Blocks.OAK_FENCE.defaultBlockState();
-        for (BlockPos pos : new BlockPos[]{
-                new BlockPos(4, 65, 2), new BlockPos(4, 65, 4),
-                new BlockPos(8, 65, 2), new BlockPos(8, 65, 4),
-                new BlockPos(12, 65, 2), new BlockPos(12, 65, 4)
-        }) {
-            place(level, pos, support);
-        }
+        place(level, new BlockPos(5, 66, 5), stair);
+        place(level, new BlockPos(6, 66, 5), plank);
+        place(level, new BlockPos(7, 66, 5), plank);
+        place(level, new BlockPos(8, 66, 5), plank);
+        place(level, new BlockPos(9, 66, 5), plank);
+        place(level, new BlockPos(10, 66, 5), plank);
+        place(level, new BlockPos(11, 66, 5), stair);
 
-        // Front bench matching the substantial wooden table shown in the reference.
-        BlockState bench = Blocks.OAK_SLAB.defaultBlockState().setValue(SlabBlock.TYPE, SlabType.TOP);
-        for (int x = 5; x <= 11; x++) {
-            place(level, new BlockPos(x, 65, 5), bench);
-        }
+        place(level, new BlockPos(5, 66, 6), stair);
+        place(level, new BlockPos(6, 66, 6), plank);
+        place(level, new BlockPos(7, 66, 6), plank);
+        place(level, new BlockPos(8, 66, 6), stair);
+        place(level, new BlockPos(9, 66, 6), plank);
+        place(level, new BlockPos(10, 66, 6), plank);
+        place(level, new BlockPos(11, 66, 6), stair);
 
-        // Lectern sits on the desk and faces the rear wall.
-        BlockPos lecternPos = new BlockPos(8, 66, 3);
-        place(level, lecternPos,
-                Blocks.LECTERN.defaultBlockState().setValue(LecternBlock.FACING, Direction.NORTH));
-        if (level.getBlockEntity(lecternPos) instanceof LecternBlockEntity lectern) {
-            lectern.setBook(new ItemStack(Items.WRITABLE_BOOK));
-            lectern.setChanged();
-        }
-
-        // Seat block immediately behind the player position relative to the lectern.
-        place(level, new BlockPos(8, 65, 5), ModBlocks.POCKET_CHAIR.defaultBlockState());
-
+        place(level, new BlockPos(8, 67, 6),
+                ModBlocks.TYPEWRITER.defaultBlockState().setValue(TypewriterBlock.FACING, Direction.NORTH));
     }
 
     private static void generateWallDecorations(ServerLevel level) {
