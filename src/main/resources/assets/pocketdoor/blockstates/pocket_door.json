@@ -1,0 +1,124 @@
+{
+  "variants": {
+    "facing=north,half=lower,hinge=left,open=false": {
+      "model": "pocketdoor:block/etrange_porte_fermee",
+      "y": 180
+    },
+    "facing=north,half=lower,hinge=left,open=true": {
+      "model": "pocketdoor:block/etrange_porte_ouverte",
+      "y": 180
+    },
+    "facing=north,half=lower,hinge=right,open=false": {
+      "model": "pocketdoor:block/etrange_porte_fermee",
+      "y": 180
+    },
+    "facing=north,half=lower,hinge=right,open=true": {
+      "model": "pocketdoor:block/etrange_porte_ouverte",
+      "y": 180
+    },
+    "facing=north,half=upper,hinge=left,open=false": {
+      "model": "pocketdoor:block/pocket_door_empty",
+      "y": 180
+    },
+    "facing=north,half=upper,hinge=left,open=true": {
+      "model": "pocketdoor:block/pocket_door_empty",
+      "y": 180
+    },
+    "facing=north,half=upper,hinge=right,open=false": {
+      "model": "pocketdoor:block/pocket_door_empty",
+      "y": 180
+    },
+    "facing=north,half=upper,hinge=right,open=true": {
+      "model": "pocketdoor:block/pocket_door_empty",
+      "y": 180
+    },
+    "facing=east,half=lower,hinge=left,open=false": {
+      "model": "pocketdoor:block/etrange_porte_fermee",
+      "y": 270
+    },
+    "facing=east,half=lower,hinge=left,open=true": {
+      "model": "pocketdoor:block/etrange_porte_ouverte",
+      "y": 270
+    },
+    "facing=east,half=lower,hinge=right,open=false": {
+      "model": "pocketdoor:block/etrange_porte_fermee",
+      "y": 270
+    },
+    "facing=east,half=lower,hinge=right,open=true": {
+      "model": "pocketdoor:block/etrange_porte_ouverte",
+      "y": 270
+    },
+    "facing=east,half=upper,hinge=left,open=false": {
+      "model": "pocketdoor:block/pocket_door_empty",
+      "y": 270
+    },
+    "facing=east,half=upper,hinge=left,open=true": {
+      "model": "pocketdoor:block/pocket_door_empty",
+      "y": 270
+    },
+    "facing=east,half=upper,hinge=right,open=false": {
+      "model": "pocketdoor:block/pocket_door_empty",
+      "y": 270
+    },
+    "facing=east,half=upper,hinge=right,open=true": {
+      "model": "pocketdoor:block/pocket_door_empty",
+      "y": 270
+    },
+    "facing=south,half=lower,hinge=left,open=false": {
+      "model": "pocketdoor:block/etrange_porte_fermee"
+    },
+    "facing=south,half=lower,hinge=left,open=true": {
+      "model": "pocketdoor:block/etrange_porte_ouverte"
+    },
+    "facing=south,half=lower,hinge=right,open=false": {
+      "model": "pocketdoor:block/etrange_porte_fermee"
+    },
+    "facing=south,half=lower,hinge=right,open=true": {
+      "model": "pocketdoor:block/etrange_porte_ouverte"
+    },
+    "facing=south,half=upper,hinge=left,open=false": {
+      "model": "pocketdoor:block/pocket_door_empty"
+    },
+    "facing=south,half=upper,hinge=left,open=true": {
+      "model": "pocketdoor:block/pocket_door_empty"
+    },
+    "facing=south,half=upper,hinge=right,open=false": {
+      "model": "pocketdoor:block/pocket_door_empty"
+    },
+    "facing=south,half=upper,hinge=right,open=true": {
+      "model": "pocketdoor:block/pocket_door_empty"
+    },
+    "facing=west,half=lower,hinge=left,open=false": {
+      "model": "pocketdoor:block/etrange_porte_fermee",
+      "y": 90
+    },
+    "facing=west,half=lower,hinge=left,open=true": {
+      "model": "pocketdoor:block/etrange_porte_ouverte",
+      "y": 90
+    },
+    "facing=west,half=lower,hinge=right,open=false": {
+      "model": "pocketdoor:block/etrange_porte_fermee",
+      "y": 90
+    },
+    "facing=west,half=lower,hinge=right,open=true": {
+      "model": "pocketdoor:block/etrange_porte_ouverte",
+      "y": 90
+    },
+    "facing=west,half=upper,hinge=left,open=false": {
+      "model": "pocketdoor:block/pocket_door_empty",
+      "y": 90
+    },
+    "facing=west,half=upper,hinge=left,open=true": {
+      "model": "pocketdoor:block/pocket_door_empty",
+      "y": 90
+    },
+    "facing=west,half=upper,hinge=right,open=false": {
+      "model": "pocketdoor:block/pocket_door_empty",
+      "y": 90
+    },
+    "facing=west,half=upper,hinge=right,open=true": {
+      "model": "pocketdoor:block/pocket_door_empty",
+      "y": 90
+    }
+  }
+}
