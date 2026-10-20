@@ -8,6 +8,7 @@ import fr.jmproduction.pocketdoor.dimension.PocketDimensions;
 import fr.jmproduction.pocketdoor.dimension.ImmersivePortalBridge;
 import fr.jmproduction.pocketdoor.dimension.PocketOfficeGenerator;
 import fr.jmproduction.pocketdoor.dimension.PocketDoorPortal;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.BlockPos;
@@ -29,6 +30,9 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.block.state.properties.DoorHingeSide;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.UUID;
 
 public final class ModNetworking {
@@ -46,6 +50,13 @@ public final class ModNetworking {
 
     public static final ResourceLocation OPEN_TYPEWRITER =
             new ResourceLocation(PocketDoorMod.MOD_ID, "open_typewriter");
+
+    /** FINISH est traité 2 ticks plus tard : le serveur doit d'abord appliquer le texte édité par le client. */
+    private static final int FINISH_DELAY_TICKS = 2;
+    private static final List<PendingFinish> PENDING_FINISH = new ArrayList<>();
+
+    private record PendingFinish(ServerPlayer player, BlockPos pos, InteractionHand hand, int dueTick) {
+    }
 
     private ModNetworking() {
     }
@@ -70,8 +81,20 @@ public final class ModNetworking {
                 (server, player, handler, buf, responseSender) -> {
                     BlockPos pos = buf.readBlockPos();
                     InteractionHand hand = buf.readEnum(InteractionHand.class);
-                    server.execute(() -> finishTypewriter(player, pos, hand));
+                    server.execute(() -> PENDING_FINISH.add(
+                            new PendingFinish(player, pos, hand, server.getTickCount() + FINISH_DELAY_TICKS)));
                 });
+
+        ServerTickEvents.END_SERVER_TICK.register(server -> {
+            Iterator<PendingFinish> it = PENDING_FINISH.iterator();
+            while (it.hasNext()) {
+                PendingFinish pending = it.next();
+                if (server.getTickCount() >= pending.dueTick()) {
+                    it.remove();
+                    finishTypewriter(pending.player(), pending.pos(), pending.hand());
+                }
+            }
+        });
 
         ServerPlayNetworking.registerGlobalReceiver(OPEN_TYPEWRITER,
                 (server, player, handler, buf, responseSender) -> {
@@ -111,6 +134,11 @@ public final class ModNetworking {
             return;
         }
 
+        // La main doit être vide : sinon setItemInHand détruirait l'objet tenu.
+        if (!player.getItemInHand(hand).isEmpty()) {
+            return;
+        }
+
         BlockEntity blockEntity = player.getLevel().getBlockEntity(pos);
         if (!(blockEntity instanceof TypewriterBlockEntity typewriter) || !typewriter.hasBook()) {
             return;
@@ -136,10 +164,17 @@ public final class ModNetworking {
         }
 
         ItemStack book = player.getItemInHand(hand);
-        if (typewriter.acceptsBook(book)) {
-            typewriter.setBook(book.copy());
-            player.setItemInHand(hand, ItemStack.EMPTY);
+        if (!typewriter.acceptsBook(book)) {
+            return;
         }
+        // Quelqu'un a pu poser un autre ouvrage entre-temps : on ne l'écrase jamais.
+        if (typewriter.hasBook()) {
+            player.displayClientMessage(Component.literal(
+                    "La machine à écrire est déjà occupée : l'ouvrage reste dans votre main."), true);
+            return;
+        }
+        typewriter.setBook(book.copy());
+        player.setItemInHand(hand, ItemStack.EMPTY);
     }
 
     public static void removeStoredDoor(ServerPlayer player) {

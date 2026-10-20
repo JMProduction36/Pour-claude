@@ -21,22 +21,17 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<TypewriterBlockEntity> {
     private static final ResourceLocation PAPER_MODEL =
             new ResourceLocation("pocketdoor", "typewriter_model.pdmesh");
     private static final ResourceLocation NO_PAPER_MODEL =
             new ResourceLocation("pocketdoor", "typewriter_model_empty.pdmesh");
-    private static final ResourceLocation[] TEXTURE_PATHS = {
-            new ResourceLocation("pocketdoor", "textures/block/typewriter/typewriter_0.png"),
-            new ResourceLocation("pocketdoor", "textures/block/typewriter/typewriter_1.png"),
-            new ResourceLocation("pocketdoor", "textures/block/typewriter/typewriter_2.png"),
-            new ResourceLocation("pocketdoor", "textures/block/typewriter/typewriter_3.png"),
-            new ResourceLocation("pocketdoor", "textures/block/typewriter/typewriter_4.png"),
-            new ResourceLocation("pocketdoor", "textures/block/typewriter/typewriter_5.png"),
-            new ResourceLocation("pocketdoor", "textures/block/typewriter/typewriter_7.png"),
-            new ResourceLocation("pocketdoor", "textures/block/typewriter/typewriter_8.png")
-    };
+    /** Les noms de textures viennent du .pdmesh : plus de liste à garder synchronisée à la main. */
+    private static final String TEXTURE_DIR = "textures/block/typewriter/";
+    private static final Pattern TEXTURE_NAME = Pattern.compile("typewriter_\\d{1,2}\\.png");
+    private static final int MAX_TEXTURES = 32;
     private static Mesh paperMesh;
     private static Mesh noPaperMesh;
     private static boolean attemptedPaperLoad;
@@ -95,8 +90,8 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
 
     public static void renderItem(ItemStack item, PoseStack poseStack, MultiBufferSource buffers,
                                   int packedLight, int packedOverlay) {
-        renderMesh(getMesh(hasBook(item)), net.minecraft.core.Direction.SOUTH,
-                0.42F / 16.0F, poseStack, buffers, packedLight, packedOverlay);
+        renderMesh(getMesh(hasBook(item)), net.minecraft.core.Direction.EAST,
+                1.0F / 16.0F, poseStack, buffers, packedLight, packedOverlay);
     }
 
     private static boolean hasBook(ItemStack stack) {
@@ -112,9 +107,10 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
 
         poseStack.pushPose();
         poseStack.translate(0.5D, 0.0D, 0.5D);
-        poseStack.mulPose(Vector3f.YP.rotationDegrees(facing.toYRot()));
+        // Le maillage est centré sur x/z autour de 0 (voir l'export) : aucun décalage à ajouter.
+        // L'avant du modèle (clavier) regarde vers +X ; on le tourne pour qu'il regarde vers "facing".
+        poseStack.mulPose(Vector3f.YP.rotationDegrees(-facing.toYRot() - 90.0F));
         poseStack.scale(scale, scale, scale);
-        poseStack.translate(-8.0D, 0.0D, -8.0D);
         for (int textureIndex = 0; textureIndex < mesh.byTexture.size(); textureIndex++) {
             List<Face> faces = mesh.byTexture.get(textureIndex);
             if (faces.isEmpty()) continue;
@@ -122,6 +118,17 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
             for (Face face : faces) emitFace(consumer, poseStack, face, packedLight, packedOverlay);
         }
         poseStack.popPose();
+    }
+
+    /** RenderType.entityCutoutNoCull dessine des QUADS : un triangle devient un quad dont le 4e sommet répète le 3e. */
+    private static void addAsQuads(List<Face> out, float nx, float ny, float nz, Vertex[] v) {
+        if (v.length == 4) {
+            out.add(new Face(nx, ny, nz, v));
+            return;
+        }
+        for (int i = 1; i < v.length - 1; i++) {
+            out.add(new Face(nx, ny, nz, new Vertex[] {v[0], v[i], v[i + 1], v[i + 1]}));
+        }
     }
 
     private static void emitFace(VertexConsumer consumer, PoseStack poseStack, Face face,
@@ -175,7 +182,7 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
                     throw new IOException("Invalid typewriter mesh header");
                 }
                 int textureCount = in.readInt();
-                if (textureCount <= 0 || textureCount > TEXTURE_PATHS.length) {
+                if (textureCount <= 0 || textureCount > MAX_TEXTURES) {
                     throw new IOException("Invalid typewriter texture count: " + textureCount);
                 }
                 List<ResourceLocation> textures = new ArrayList<>(textureCount);
@@ -184,12 +191,10 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
                     byte[] bytes = new byte[length];
                     in.readFully(bytes);
                     String textureName = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-                    String expectedName = TEXTURE_PATHS[i].getPath();
-                    expectedName = expectedName.substring(expectedName.lastIndexOf('/') + 1);
-                    if (!expectedName.equals(textureName)) {
+                    if (!TEXTURE_NAME.matcher(textureName).matches()) {
                         throw new IOException("Unexpected typewriter texture: " + textureName);
                     }
-                    textures.add(TEXTURE_PATHS[i]);
+                    textures.add(new ResourceLocation("pocketdoor", TEXTURE_DIR + textureName));
                 }
                 List<List<Face>> byTexture = new ArrayList<>(textureCount);
                 for (int i = 0; i < textureCount; i++) byTexture.add(new ArrayList<>());
@@ -209,7 +214,7 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
                         vertices[v] = new Vertex(in.readFloat(), in.readFloat(), in.readFloat(),
                                 in.readFloat(), in.readFloat());
                     }
-                    byTexture.get(textureIndex).add(new Face(nx, ny, nz, vertices));
+                    addAsQuads(byTexture.get(textureIndex), nx, ny, nz, vertices);
                 }
                 return new Mesh(textures, byTexture);
             }
@@ -217,10 +222,5 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
             PocketDoorMod.LOGGER.error("Unable to load typewriter mesh {}", model, e);
             return null;
         }
-    }
-
-    @Override
-    public boolean shouldRenderOffScreen(TypewriterBlockEntity blockEntity) {
-        return true;
     }
 }

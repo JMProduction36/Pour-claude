@@ -66,6 +66,8 @@ public class TypewriterBlockEntity extends BlockEntity {
     @Override
     protected void saveAdditional(CompoundTag tag) {
         super.saveAdditional(tag);
+        // Toujours écrit : le paquet envoyé au client n'est jamais vide, même quand on retire le livre.
+        tag.putBoolean("HasBook", !book.isEmpty());
         if (!book.isEmpty()) {
             CompoundTag bookTag = new CompoundTag();
             book.save(bookTag);
@@ -86,6 +88,7 @@ public class TypewriterBlockEntity extends BlockEntity {
     @Override
     public CompoundTag getUpdateTag() {
         CompoundTag tag = super.getUpdateTag();
+        tag.putBoolean("HasBook", !book.isEmpty());
         if (!book.isEmpty()) {
             CompoundTag bookTag = new CompoundTag();
             book.save(bookTag);

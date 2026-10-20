@@ -3,12 +3,12 @@ package fr.jmproduction.pocketdoor.block;
 import fr.jmproduction.pocketdoor.network.ModNetworking;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.Containers;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -39,7 +39,7 @@ public class TypewriterBlock extends HorizontalDirectionalBlock implements Entit
 
     @Override
     public BlockState getStateForPlacement(net.minecraft.world.item.context.BlockPlaceContext context) {
-        return defaultBlockState().setValue(FACING, context.getHorizontalDirection());
+        return defaultBlockState().setValue(FACING, context.getHorizontalDirection().getOpposite());
     }
 
     @Override
@@ -129,6 +129,17 @@ public class TypewriterBlock extends HorizontalDirectionalBlock implements Entit
         }
 
         return InteractionResult.PASS;
+    }
+
+    @Override
+    public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean moved) {
+        if (!state.is(newState.getBlock()) && !level.isClientSide
+                && level.getBlockEntity(pos) instanceof TypewriterBlockEntity typewriter
+                && typewriter.hasBook()) {
+            Containers.dropItemStack(level, pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D,
+                    typewriter.getBook().copy());
+        }
+        super.onRemove(state, level, pos, newState, moved);
     }
 
     private static void refreshRenderer(Level level, BlockPos pos) {
