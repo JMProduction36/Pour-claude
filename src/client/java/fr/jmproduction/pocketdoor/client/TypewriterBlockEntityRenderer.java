@@ -5,6 +5,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Matrix3f;
 import com.mojang.math.Matrix4f;
 import com.mojang.math.Vector3f;
+import fr.jmproduction.pocketdoor.PocketDoorMod;
 import fr.jmproduction.pocketdoor.block.TypewriterBlock;
 import fr.jmproduction.pocketdoor.block.TypewriterBlockEntity;
 import net.minecraft.client.Minecraft;
@@ -163,7 +164,10 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
     private static Mesh loadMesh(ResourceLocation model) {
         try {
             var resource = Minecraft.getInstance().getResourceManager().getResource(model);
-            if (resource.isEmpty()) return null;
+            if (resource.isEmpty()) {
+                PocketDoorMod.LOGGER.error("Missing typewriter mesh resource: {}", model);
+                return null;
+            }
             try (InputStream stream = resource.get().open(); DataInputStream in = new DataInputStream(stream)) {
                 byte[] magic = new byte[4];
                 in.readFully(magic);
@@ -210,8 +214,7 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
                 return new Mesh(textures, byTexture);
             }
         } catch (Exception e) {
-            Minecraft.getInstance().execute(() ->
-                    System.err.println("[PocketDoor] Unable to load typewriter mesh: " + e));
+            PocketDoorMod.LOGGER.error("Unable to load typewriter mesh {}", model, e);
             return null;
         }
     }

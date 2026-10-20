@@ -1,8 +1,12 @@
 {
   "variants": {
-    "facing=north": { "model": "pocketdoor:block/typewriter", "y": 90 },
-    "facing=south": { "model": "pocketdoor:block/typewriter", "y": 270 },
-    "facing=east": { "model": "pocketdoor:block/typewriter", "y": 180 },
-    "facing=west": { "model": "pocketdoor:block/typewriter", "y": 0 }
+    "facing=north,has_paper=false": { "model": "pocketdoor:block/typewriter", "y": 90 },
+    "facing=south,has_paper=false": { "model": "pocketdoor:block/typewriter", "y": 270 },
+    "facing=east,has_paper=false": { "model": "pocketdoor:block/typewriter", "y": 180 },
+    "facing=west,has_paper=false": { "model": "pocketdoor:block/typewriter", "y": 0 },
+    "facing=north,has_paper=true": { "model": "pocketdoor:block/typewriter", "y": 90 },
+    "facing=south,has_paper=true": { "model": "pocketdoor:block/typewriter", "y": 270 },
+    "facing=east,has_paper=true": { "model": "pocketdoor:block/typewriter", "y": 180 },
+    "facing=west,has_paper=true": { "model": "pocketdoor:block/typewriter", "y": 0 }
   }
 }

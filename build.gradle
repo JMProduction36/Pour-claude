@@ -83,6 +83,8 @@ tasks.register("prepareImmersivePortals") {
 }
 
 tasks.register("exportTypewriterMeshes") {
+    // Blockbench stores cube transforms in the cube and in every outliner
+    // group above it.  Keep the .bbmodel files as the source of truth.
     inputs.files(
             file("blockbench/Machine_a_ecrire.bbmodel"),
             file("blockbench/Machine_a_ecrire_sans_papier.bbmodel")
@@ -95,127 +97,104 @@ tasks.register("exportTypewriterMeshes") {
     doLast {
         def exportMesh = { File source, File target ->
             def model = new groovy.json.JsonSlurper().parse(source)
-            def elementsByUuid = model.elements.collectEntries { element -> [(element.uuid): element] }
-            def orderedElements = []
-            def visitOutliner
-            visitOutliner = { nodes ->
-                nodes.each { node ->
+            def byUuid = model.elements.collectEntries { e -> [(e.uuid): e] }
+            def identity = { ->
+                [[1d,0d,0d,0d],[0d,1d,0d,0d],[0d,0d,1d,0d],[0d,0d,0d,1d]]
+            }
+            def mul = { a, b ->
+                (0..3).collect { i -> (0..3).collect { j ->
+                    (0..3).collect { k -> a[i][k] * b[k][j] }.sum() as double
+                }}
+            }
+            def translation = { p ->
+                def m=identity(); m[0][3]=p[0] as double; m[1][3]=p[1] as double; m[2][3]=p[2] as double; m
+            }
+            def rotation = { r ->
+                double rx=Math.toRadians((r?.getAt(0) ?: 0) as double)
+                double ry=Math.toRadians((r?.getAt(1) ?: 0) as double)
+                double rz=Math.toRadians((r?.getAt(2) ?: 0) as double)
+                double cx=Math.cos(rx), sx=Math.sin(rx), cy=Math.cos(ry), sy=Math.sin(ry), cz=Math.cos(rz), sz=Math.sin(rz)
+                // Blockbench's XYZ Euler rotation: R = Rz * Ry * Rx.
+                [[cy*cz, cz*sy*sx-sz*cx, cz*sy*cx+sz*sx,0d],
+                 [cy*sz, sz*sy*sx+cz*cx, sz*sy*cx-cz*sx,0d],
+                 [-sy,   cy*sx,          cy*cx,          0d],
+                 [0d,0d,0d,1d]]
+            }
+            def around = { origin, rot ->
+                mul(mul(translation(origin), rotation(rot)), translation(origin.collect { -(it as double) }))
+            }
+            def apply = { m, p ->
+                [0,1,2].collect { i -> (0..3).collect { k -> m[i][k] * ((k<3 ? p[k] : 1) as double) }.sum() as double }
+            }
+            def worldByUuid = [:]
+            def walk
+            walk = { nodes, parent ->
+                (nodes ?: []).each { node ->
                     if (node instanceof String) {
-                        if (elementsByUuid.containsKey(node)) orderedElements.add(elementsByUuid[node])
+                        if (byUuid.containsKey(node)) worldByUuid[node] = parent
                     } else if (node instanceof Map) {
-                        visitOutliner(node.children ?: [])
+                        def o=node.origin ?: [0d,0d,0d]
+                        def r=node.rotation ?: [0d,0d,0d]
+                        // A group's pivot is in model coordinates, not relative
+                        // to its children.  Therefore compose parent * pivotRotation.
+                        def groupWorld=mul(parent, around(o,r))
+                        walk(node.children ?: [], groupWorld)
                     }
                 }
             }
-            visitOutliner(model.outliner ?: [])
-            if (orderedElements.isEmpty()) orderedElements.addAll(model.elements)
+            walk(model.outliner ?: [], identity())
+            model.elements.each { e -> if (!worldByUuid.containsKey(e.uuid)) worldByUuid[e.uuid]=identity() }
 
-            def faces = []
-            def allVertices = []
-            def rotatePoint = { point, origin, rotation ->
-                def result = (0..2).collect { axis -> (point[axis] as double) - (origin[axis] as double) }
-                rotation.eachWithIndex { degrees, axis ->
-                    double radians = Math.toRadians(degrees as double)
-                    double cosine = Math.cos(radians)
-                    double sine = Math.sin(radians)
-                    if (axis == 0) {
-                        double y = result[1] * cosine - result[2] * sine
-                        result[2] = result[1] * sine + result[2] * cosine
-                        result[1] = y
-                    } else if (axis == 1) {
-                        double x = result[0] * cosine + result[2] * sine
-                        result[2] = -result[0] * sine + result[2] * cosine
-                        result[0] = x
-                    } else {
-                        double x = result[0] * cosine - result[1] * sine
-                        result[1] = result[0] * sine + result[1] * cosine
-                        result[0] = x
-                    }
-                }
-                (0..2).each { axis -> result[axis] += origin[axis] as double }
-                result
-            }
-            def cross = { a, b ->
-                [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
-            }
-            def normalize = { vector ->
-                double length = Math.sqrt(vector.collect { it * it }.sum() as double)
-                length == 0.0d ? [0.0d, 1.0d, 0.0d] : vector.collect { it / length }
-            }
-
-            orderedElements.each { element ->
+            def faces=[]; def allVertices=[]
+            def cross = { a,b -> [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]] }
+            def normalize = { v -> double l=Math.sqrt(v.collect{it*it}.sum() as double); l==0 ? [0d,1d,0d] : v.collect{it/l} }
+            model.elements.each { element ->
                 if (element.export == false || element.visibility == false) return
-                def origin = element.origin ?: [0.0d, 0.0d, 0.0d]
-                def rotation = element.rotation ?: [0.0d, 0.0d, 0.0d]
-                element.faces.each { faceId, face ->
+                def local = around(element.origin ?: [0d,0d,0d], element.rotation ?: [0d,0d,0d])
+                def transform = mul(worldByUuid[element.uuid] ?: identity(), local)
+                (element.faces ?: [:]).each { faceId, face ->
                     if (!(face.texture instanceof Number)) return
-                    int textureIndex = face.texture as int
-                    if (textureIndex < 0 || textureIndex >= 8) return
-                    def uvMap = face.uv ?: [:]
-                    def transformed = []
-                    face.vertices.each { vertexId ->
-                        def point = element.vertices[vertexId]
-                        def uv = uvMap[vertexId]
+                    int ti=face.texture as int
+                    if (ti<0 || ti >= (model.textures?.size() ?: 0)) return
+                    def verts=[]
+                    (face.vertices ?: []).each { id ->
+                        def point=element.vertices[id]; def uv=(face.uv ?: [:])[id]
                         if (point != null && uv != null) {
-                            def position = rotatePoint(point, origin, rotation)
-                            transformed.add([position[0], position[1], position[2], (uv[0] as double) / 16.0d, (uv[1] as double) / 16.0d])
+                            def q=apply(transform,point)
+                            verts << [q[0],q[1],q[2],(uv[0] as double)/16d,(uv[1] as double)/16d]
                         }
                     }
-                    if (transformed.size() < 3) return
-                    for (int vertexIndex = 1; vertexIndex < transformed.size() - 1; vertexIndex++) {
-                        def triangle = [transformed[0], transformed[vertexIndex], transformed[vertexIndex + 1]]
-                        def edgeA = (0..2).collect { axis -> triangle[1][axis] - triangle[0][axis] }
-                        def edgeB = (0..2).collect { axis -> triangle[2][axis] - triangle[0][axis] }
-                        def normal = normalize(cross(edgeA, edgeB))
-                        faces.add([textureIndex, normal, triangle])
-                        allVertices.addAll(triangle)
+                    if (verts.size()<3) return
+                    (1..<(verts.size()-1)).each { i ->
+                        def tri=[verts[0],verts[i],verts[i+1]]
+                        def n=normalize(cross((0..2).collect{tri[1][it]-tri[0][it]},(0..2).collect{tri[2][it]-tri[0][it]}))
+                        faces << [ti,n,tri]; allVertices.addAll(tri)
                     }
                 }
             }
             if (faces.isEmpty()) throw new GradleException("No typewriter mesh faces exported from " + source)
-
-            double minX = allVertices.collect { it[0] as double }.min()
-            double maxX = allVertices.collect { it[0] as double }.max()
-            double minY = allVertices.collect { it[1] as double }.min()
-            double maxY = allVertices.collect { it[1] as double }.max()
-            double minZ = allVertices.collect { it[2] as double }.min()
-            double maxZ = allVertices.collect { it[2] as double }.max()
-            double height = maxY - minY
-            if (height <= 0.0d) throw new GradleException("Invalid typewriter mesh height in " + source)
-            double centerX = (minX + maxX) * 0.5d
-            double centerZ = (minZ + maxZ) * 0.5d
-
+            double minX=allVertices.collect{it[0] as double}.min(), maxX=allVertices.collect{it[0] as double}.max()
+            double minY=allVertices.collect{it[1] as double}.min(), maxY=allVertices.collect{it[1] as double}.max()
+            double minZ=allVertices.collect{it[2] as double}.min(), maxZ=allVertices.collect{it[2] as double}.max()
+            double height=maxY-minY
+            if (height<=0d) throw new GradleException("Invalid typewriter mesh height in " + source)
+            double cx=(minX+maxX)/2d, cz=(minZ+maxZ)/2d
             target.parentFile.mkdirs()
             target.withOutputStream { raw ->
-                def output = new DataOutputStream(raw)
-                output.writeBytes("PDM1")
-                output.writeInt(8)
-                ["typewriter_0.png", "typewriter_1.png", "typewriter_2.png", "typewriter_3.png",
-                 "typewriter_4.png", "typewriter_5.png", "typewriter_7.png", "typewriter_8.png"].each { texture ->
-                    byte[] encoded = texture.getBytes("UTF-8")
-                    output.writeShort(encoded.length)
-                    output.write(encoded)
+                def out=new DataOutputStream(raw); out.writeBytes("PDM1")
+                out.writeInt(model.textures.size())
+                (0..<model.textures.size()).each { i -> def n="typewriter_${i}.png"; byte[] b=n.getBytes("UTF-8"); out.writeShort(b.length); out.write(b) }
+                out.writeInt(faces.size())
+                faces.each { f ->
+                    out.writeInt(f[0] as int); f[1].each{out.writeFloat(it as float)}; out.writeInt(3)
+                    f[2].each { v -> out.writeFloat((((v[0]-cx)/height*16d) as float)); out.writeFloat((((v[1]-minY)/height*16d) as float)); out.writeFloat((((v[2]-cz)/height*16d) as float)); out.writeFloat(v[3] as float); out.writeFloat(v[4] as float) }
                 }
-                output.writeInt(faces.size())
-                faces.each { face ->
-                    output.writeInt(face[0] as int)
-                    face[1].each { output.writeFloat(it as float) }
-                    output.writeInt(face[2].size())
-                    face[2].each { vertex ->
-                        output.writeFloat((((vertex[0] as double) - minX) / height * 16.0d) as float)
-                        output.writeFloat((((vertex[1] as double) - minY) / height * 16.0d) as float)
-                        output.writeFloat((((vertex[2] as double) - minZ) / height * 16.0d) as float)
-                        output.writeFloat(vertex[3] as float)
-                        output.writeFloat(vertex[4] as float)
-                    }
-                }
-                output.flush()
+                out.flush()
             }
         }
-
-        def assets = file("src/main/resources/assets/pocketdoor")
-        exportMesh(file("blockbench/Machine_a_ecrire.bbmodel"), new File(assets, "typewriter_model.pdmesh"))
-        exportMesh(file("blockbench/Machine_a_ecrire_sans_papier.bbmodel"), new File(assets, "typewriter_model_empty.pdmesh"))
+        def assets=file("src/main/resources/assets/pocketdoor")
+        exportMesh(file("blockbench/Machine_a_ecrire.bbmodel"),new File(assets,"typewriter_model.pdmesh"))
+        exportMesh(file("blockbench/Machine_a_ecrire_sans_papier.bbmodel"),new File(assets,"typewriter_model_empty.pdmesh"))
     }
 }
 
