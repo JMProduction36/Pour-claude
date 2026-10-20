@@ -361,9 +361,9 @@ public final class PocketDoorPortal {
         BlockPos upper = lower.above();
         if (!level.getBlockState(lower).is(ModBlocks.POCKET_DOOR)) return;
 
-        level.setBlock(lower, level.getBlockState(lower).setValue(DoorBlock.OPEN, open), 10);
+        level.setBlock(lower, level.getBlockState(lower).setValue(DoorBlock.OPEN, open), 3);
         if (level.getBlockState(upper).is(ModBlocks.POCKET_DOOR)) {
-            level.setBlock(upper, level.getBlockState(upper).setValue(DoorBlock.OPEN, open), 10);
+            level.setBlock(upper, level.getBlockState(upper).setValue(DoorBlock.OPEN, open), 3);
         }
     }
 }

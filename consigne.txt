@@ -1,53 +1,63 @@
-1. Carte et destinations
+Voila un des messages d'erreur:
 
-- Faire attention à ce que la carte se mette correctement à jour en fonction des destinations découvertes.
-- Les destinations doivent être bien différentes d’un monde à l’autre.
-- La carte doit pouvoir être déplacée avec un clic gauche maintenu et un glissé, mais uniquement à l’intérieur du carré prévu pour la carte.
 
-2. Porte après téléportation
+> Task :runClient FAILED
 
-- Après la téléportation, le modèle de la porte ouverte doit rester le modèle de porte ouverte.
-- Il ne doit surtout pas y avoir de superposition de modèles ou de double modèle de porte.
+[Incubating] Problems report is available at: file:///C:/Users/admin/Downloads/PocketDoor-0.2.0-door-prototype/build/reports/problems/problems-report.html
 
-3. Machine à écrire
+FAILURE: Build failed with an exception.
 
-- La machine à écrire doit être un objet disponible dans le menu Créatif, dans l’onglet du mod supplémentaire.
-- Lorsqu’elle est posée :
-  - son modèle 3D doit toujours être orienté face au joueur ;
-  - elle doit être collée au point le plus bas de sa hitbox ;
-  - sa largeur et sa profondeur doivent correspondre à un bloc Minecraft complet, soit 16 × 16 pixels.
-- Vérifier attentivement que les textures et les meshes des cylindres correspondant à `"Keys.001_Clean chrome_0"` et `"Key_Keys_0"` sont correctement positionnés et correspondent bien à leur emplacement dans le fichier `.bbmodel`.
+* What went wrong:
+Execution failed for task ':runClient' (registered by plugin 'fabric-loom').
+> Process 'command 'C:\Program Files\Microsoft\jdk-21.0.12.101-hotspot\bin\java.exe'' finished with non-zero exit value -1073740791 (NTSTATUS 0xC0000409)
 
-4. Machine à écrire dans la main et l’inventaire
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
 
-- Lorsqu’elle est tenue en main ou affichée dans l’inventaire, la hotbar, etc., la machine à écrire doit utiliser un mini-modèle 3D correspondant au véritable modèle 3D, et non une simple icône 2D.
+BUILD FAILED in 2m 42s
 
-5. Modèles de la machine à écrire
 
-Il y a maintenant deux modèles différents pour la machine à écrire :
+1. Porte après confirmation de la destination
 
-- `"Machne_a_ecrire_sans_papier"` → modèle utilisé lorsqu’aucun livre n’est présent dans la machine.
-- L’autre modèle existant → modèle utilisé lorsqu’un livre est présent dans la machine.
+- Lorsque je confirme la destination de la porte, celle-ci se ferme immédiatement.
+- Cela m’empêche donc de sortir.
+- Corriger ce comportement afin que la porte reste ouverte après la confirmation de la destination et permette bien au joueur de sortir.
 
-Il faut donc s’assurer que le jeu utilise automatiquement le bon modèle en fonction de la présence ou non d’un livre.
+2. Taille du modèle 3D dans l’inventaire et la main
 
-6. Bureau
+- Quand j’ai demandé un « mini modèle 3D », je ne voulais pas dire que le modèle devait être littéralement réduit à une toute petite taille.
+- Le modèle 3D affiché dans la main, l’inventaire, la hotbar, etc. doit avoir une taille adaptée à Minecraft et rester clairement visible.
+- Il doit s’agir d’une version miniature du véritable modèle 3D, tout en conservant des proportions et une taille d’affichage normales.
 
-- Le bureau doit être avancé de 2 blocs vers la porte.
-- Retirer le pupitre vanilla.
-- Le remplacer par la machine à écrire.
+3. Bureau
 
-7. Disposition du bureau
+- Le bureau doit maintenant être complètement plaqué au sol.
+- Il ne doit plus y avoir de chaîne sous ou autour du bureau.
+- La disposition et l’orientation doivent maintenant être exactement comme ceci :
 
 ```text
-{}[][][][]
-[][)[)[)[]
 [][)()[)[]
+[][)[)[)[]
+[][][][]{}
 ```
 
-Légende :
+4. Orientation des escaliers
 
-- `{}` → Lanterne sur escalier vers le haut
-- `[]` → Escalier vers le haut
-- `()` → Machine à écrire sur bloc
-- `[)` → Bloc de planche de chaîne
+Les escaliers doivent être orientés comme indiqué ci-dessous :
+
+```text
+<---[]      []--->
+<---[]      []--->
+<---[][][][]{}--->
+    | | | | |
+    | | | | |
+```
+
+- Les escaliers situés à gauche doivent être orientés vers la gauche.
+- Les escaliers situés à droite doivent être orientés vers la droite.
+- La rangée inférieure doit conserver l’orientation indiquée sur le schéma.
+- Respecter précisément cette orientation lors du placement des escaliers.
+  

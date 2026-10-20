@@ -5,7 +5,6 @@ import fr.jmproduction.pocketdoor.block.ModBlocks;
 import fr.jmproduction.pocketdoor.block.TypewriterBlockEntity;
 import fr.jmproduction.pocketdoor.data.PocketDoorSavedData;
 import fr.jmproduction.pocketdoor.dimension.PocketDimensions;
-import fr.jmproduction.pocketdoor.dimension.PocketDoorPortal;
 import fr.jmproduction.pocketdoor.dimension.ImmersivePortalBridge;
 import fr.jmproduction.pocketdoor.dimension.PocketOfficeGenerator;
 import fr.jmproduction.pocketdoor.dimension.PocketDoorPortal;
@@ -26,6 +25,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.block.state.properties.DoorHingeSide;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 
@@ -217,27 +217,17 @@ public final class ModNetworking {
         }
 
         ServerLevel overworld = player.getServer().overworld();
-        int y = overworld.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
-        if (y <= overworld.getMinBuildHeight()) {
+        // Force-load the target chunk before reading its heightmap or changing blocks.
+        overworld.getChunk(x >> 4, z >> 4);
+        if (!overworld.getWorldBorder().isWithinBounds(new BlockPos(x, overworld.getMinBuildHeight(), z))) {
             player.displayClientMessage(Component.literal("Destination impossible ici."), true);
             return;
         }
 
-        BlockPos destination = new BlockPos(x, y, z);
-        if (!overworld.getWorldBorder().isWithinBounds(destination)
-                || y < overworld.getMinBuildHeight() || y + 1 >= overworld.getMaxBuildHeight()) {
-            player.displayClientMessage(Component.literal("Destination impossible ici."), true);
-            return;
-        }
-        BlockState destinationLower = overworld.getBlockState(destination);
-        BlockState destinationUpper = overworld.getBlockState(destination.above());
-
-        // The selected map coordinate is the exact X/Z where the physical Pocket Door
-        // is going to reappear. The surface block is kept untouched; both door blocks
-        // must be free (or replaceable) before moving the real door there.
-        if (!isReplaceable(destinationLower) || !isReplaceable(destinationUpper)) {
+        BlockPos destination = findSafeDestination(overworld, x, z);
+        if (destination == null) {
             player.displayClientMessage(Component.literal(
-                    "Impossible de déplacer la porte ici : l'emplacement est bloqué."), true);
+                    "Impossible de déplacer la porte ici : aucun sol sûr n'a été trouvé."), true);
             return;
         }
 
@@ -245,34 +235,43 @@ public final class ModNetworking {
         ServerLevel oldDoorLevel = currentId == null
                 ? null
                 : player.getServer().getLevel(ResourceKey.create(net.minecraft.core.Registry.DIMENSION_REGISTRY, currentId));
-        if (oldDoorLevel == null || !oldDoorLevel.getBlockState(existing.getDoorPos()).is(ModBlocks.POCKET_DOOR)) {
+        if (oldDoorLevel == null) {
             player.displayClientMessage(Component.literal(
                     "La Porte de Poche actuelle n'existe plus."), true);
             return;
         }
 
         BlockPos oldPos = existing.getDoorPos();
+        // Load the old chunk as well: the old exterior door may be far away or in another dimension.
+        oldDoorLevel.getChunk(oldPos.getX() >> 4, oldPos.getZ() >> 4);
+        if (!oldDoorLevel.getBlockState(oldPos).is(ModBlocks.POCKET_DOOR)
+                || !oldDoorLevel.getBlockState(oldPos.above()).is(ModBlocks.POCKET_DOOR)) {
+            player.displayClientMessage(Component.literal(
+                    "La Porte de Poche actuelle n'existe plus."), true);
+            return;
+        }
+
+        // Reject the old two-block footprint before removing anything. A destination that is
+        // identical to, or overlaps, the old footprint must never be replaced in-place.
+        if (sameDoorFootprint(oldDoorLevel, oldPos, overworld, destination)) {
+            player.displayClientMessage(Component.literal(
+                    "La nouvelle destination doit être différente de la porte actuelle."), true);
+            return;
+        }
+
         BlockState oldLower = oldDoorLevel.getBlockState(oldPos);
         Direction facing = oldLower.getValue(DoorBlock.FACING);
         DoorHingeSide hinge = oldLower.getValue(DoorBlock.HINGE);
 
-        // Make absolutely sure no old live portal/render remains at the previous location.
+        // Remove the old portal and both door halves before placing anything at the new site.
         ImmersivePortalBridge.cleanupAll(oldDoorLevel, oldPos);
-
-        // The office door does not move: only the Overworld/exterior endpoint changes.
-        // The player stays in the pocket office, which creates the intended illusion that
-        // the exterior door itself has teleported to the selected map coordinate.
-        if (oldDoorLevel.getBlockState(oldPos).is(ModBlocks.POCKET_DOOR)) {
-            oldDoorLevel.removeBlock(oldPos, false);
-        }
-        if (oldDoorLevel.getBlockState(oldPos.above()).is(ModBlocks.POCKET_DOOR)) {
-            oldDoorLevel.removeBlock(oldPos.above(), false);
-        }
+        oldDoorLevel.removeBlock(oldPos, false);
+        oldDoorLevel.removeBlock(oldPos.above(), false);
 
         BlockState newLower = ModBlocks.POCKET_DOOR.defaultBlockState()
                 .setValue(DoorBlock.FACING, facing)
                 .setValue(DoorBlock.HINGE, hinge)
-                .setValue(DoorBlock.OPEN, false)
+                .setValue(DoorBlock.OPEN, true)
                 .setValue(DoorBlock.POWERED, false)
                 .setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER);
         BlockState newUpper = newLower.setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER);
@@ -280,32 +279,56 @@ public final class ModNetworking {
         overworld.setBlock(destination, newLower, 3);
         overworld.setBlock(destination.above(), newUpper, 3);
 
-        // Keep the persistent door record in sync with the newly moved physical model.
         UUID owner = existing.hasOwner() ? existing.getOwner() : player.getUUID();
         existing.setTeleportTarget(destination);
         existing.setDoor(overworld, destination, owner);
 
-        // Prepare the NEW exterior endpoint immediately. Previously the portal pair was
-        // only recreated when the door was closed and opened again, which made the render
-        // appear to load only after leaving the map interface. Keep the player in the pocket
-        // office, but refresh the two portal endpoints as soon as the destination is confirmed.
-        // The real door remains closed; the portal sits behind the physical door model and
-        // becomes visible as soon as the player opens it.
-        overworld.getChunk(destination.getX() >> 4, destination.getZ() >> 4);
         ServerLevel pocket = player.getServer().getLevel(PocketDimensions.POCKET_OFFICE);
         if (pocket != null) {
             PocketOfficeGenerator.ensureGenerated(pocket);
-            if (PocketDoorPortal.isDoorOpen(pocket, PocketOfficeGenerator.POCKET_DOOR_LOWER)) {
-                PocketDoorPortal.setOpen(pocket, PocketOfficeGenerator.POCKET_DOOR_LOWER, false);
-            }
-            ImmersivePortalBridge.close(overworld, destination);
+            PocketDoorPortal.setOpen(pocket, PocketOfficeGenerator.POCKET_DOOR_LOWER, true);
+            ImmersivePortalBridge.open(overworld, destination, facing, pocket);
         }
 
         player.displayClientMessage(Component.literal(
-                "Porte déplacée et destination chargée : X " + x + " Y " + y + " Z " + z), true);
+                "Porte déplacée et destination chargée : X " + x + " Y " + destination.getY() + " Z " + z), true);
         PocketDoorMod.LOGGER.info(
                 "Pocket Door moved to {} {} {} in the Overworld for {}",
-                x, y, z, player.getUUID());
+                x, destination.getY(), z, player.getUUID());
+    }
+
+    /** Finds the first safe two-block doorway above the heightmap surface. */
+    private static BlockPos findSafeDestination(ServerLevel level, int x, int z) {
+        int height = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+        int start = Math.max(level.getMinBuildHeight() + 1, height - 2);
+        int end = Math.min(level.getMaxBuildHeight() - 2, height + 8);
+        for (int y = start; y <= end; y++) {
+            BlockPos lower = new BlockPos(x, y, z);
+            BlockState support = level.getBlockState(lower.below());
+            if (!isSolidSupport(level, lower.below(), support)) {
+                continue;
+            }
+            if (isReplaceable(level.getBlockState(lower))
+                    && isReplaceable(level.getBlockState(lower.above()))
+                    && isReplaceable(level.getBlockState(lower.above(2)))) {
+                return lower;
+            }
+        }
+        return null;
+    }
+
+    private static boolean sameDoorFootprint(ServerLevel oldLevel, BlockPos oldPos,
+                                               ServerLevel newLevel, BlockPos newPos) {
+        if (!oldLevel.dimension().equals(newLevel.dimension())) {
+            return false;
+        }
+        return oldPos.equals(newPos) || oldPos.equals(newPos.above())
+                || oldPos.above().equals(newPos) || oldPos.above().equals(newPos.above());
+    }
+
+    private static boolean isSolidSupport(ServerLevel level, BlockPos pos, BlockState state) {
+        return !state.isAir() && state.getFluidState().isEmpty()
+                && !state.is(BlockTags.LEAVES) && !state.getCollisionShape(level, pos).isEmpty();
     }
 
     private static void createDoor(ServerPlayer player, BlockPos target, Direction hitFace) {
@@ -376,6 +399,7 @@ public final class ModNetworking {
     }
 
     private static boolean isReplaceable(BlockState state) {
-        return state.isAir() || state.getMaterial().isReplaceable();
+        return state.getFluidState().isEmpty()
+                && (state.isAir() || state.getMaterial().isReplaceable());
     }
 }
