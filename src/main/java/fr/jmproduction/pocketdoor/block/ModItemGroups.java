@@ -4,6 +4,7 @@ import fr.jmproduction.pocketdoor.PocketDoorMod;
 import net.fabricmc.fabric.api.client.itemgroup.FabricItemGroupBuilder;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.CreativeModeTab;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 
@@ -20,7 +21,11 @@ public final class ModItemGroups {
             .appendItems((stacks, group) -> {
                 initialize();
                 for (Block block : ITEMS) {
-                    stacks.add(new ItemStack(block));
+                    // Jamais deux fois le même objet dans l'onglet.
+                    Item item = block.asItem();
+                    if (stacks.stream().noneMatch(stack -> stack.is(item))) {
+                        stacks.add(new ItemStack(item));
+                    }
                 }
             })
             .build();
@@ -31,7 +36,6 @@ public final class ModItemGroups {
 
     public static void initialize() {
         if (initialized) return;
-        add(ModBlocks.TYPEWRITER);
         add(ModBlocks.POCKET_DOOR);
         initialized = true;
     }

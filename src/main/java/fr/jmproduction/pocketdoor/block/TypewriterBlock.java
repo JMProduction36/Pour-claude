@@ -25,7 +25,17 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 
 /** A small typewriter sitting on the desk, with one persistent book slot. */
 public class TypewriterBlock extends HorizontalDirectionalBlock implements EntityBlock {
-    private static final VoxelShape COLLISION = Block.box(0, 0, 0, 16, 10, 16);
+    /**
+     * Hitbox ajustée au modèle (centré dans le bloc, 10 px de haut).
+     * Le clavier regarde vers "facing" : la machine est plus longue dans l'axe avant/arrière.
+     */
+    private static final VoxelShape SHAPE_EAST_WEST = Block.box(2.5, 0, 3, 13.5, 10, 13);
+    private static final VoxelShape SHAPE_NORTH_SOUTH = Block.box(3, 0, 2.5, 13, 10, 13.5);
+
+    private static VoxelShape shapeFor(BlockState state) {
+        net.minecraft.core.Direction facing = state.getValue(FACING);
+        return facing.getAxis() == net.minecraft.core.Direction.Axis.X ? SHAPE_EAST_WEST : SHAPE_NORTH_SOUTH;
+    }
 
     public TypewriterBlock(Properties properties) {
         super(properties.noOcclusion());
@@ -60,13 +70,13 @@ public class TypewriterBlock extends HorizontalDirectionalBlock implements Entit
     @Override
     public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos,
                                net.minecraft.world.phys.shapes.CollisionContext context) {
-        return COLLISION;
+        return shapeFor(state);
     }
 
     @Override
     public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos,
                                         net.minecraft.world.phys.shapes.CollisionContext context) {
-        return COLLISION;
+        return shapeFor(state);
     }
 
     @Override

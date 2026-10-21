@@ -33,6 +33,12 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
     private static final Pattern TEXTURE_NAME = Pattern.compile("typewriter_\\d{1,2}\\.png");
     private static final int MAX_TEXTURES = 32;
     private static Mesh paperMesh;
+    /** Hitbox de la machine (en pixels) : 16 x 10 x 16. Le bloc réduit le modèle pour qu'il tienne dedans. */
+    private static final float HITBOX_HEIGHT_PX = 10.0F;
+    private static final float HITBOX_FOOTPRINT_PX = 16.0F;
+    /** Échelle du bloc posé (1.0 = taille d'origine du maillage), calculée au chargement. */
+    private static float blockFit = 1.0F;
+
     private static Mesh noPaperMesh;
     private static boolean attemptedPaperLoad;
     private static boolean attemptedNoPaperLoad;
@@ -70,10 +76,20 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
     private static final class Mesh {
         final List<ResourceLocation> textures;
         final List<List<Face>> byTexture;
+        /** Dimensions réelles du maillage (pixels du .pdmesh), mesurées au chargement. */
+        final float extentX;
+        final float extentZ;
+        final float height;
+        /** Rattrape un éventuel écart d'échelle entre le modèle vide et le modèle avec papier. */
+        float relativeScale = 1.0F;
 
-        Mesh(List<ResourceLocation> textures, List<List<Face>> byTexture) {
+        Mesh(List<ResourceLocation> textures, List<List<Face>> byTexture,
+             float extentX, float extentZ, float height) {
             this.textures = textures;
             this.byTexture = byTexture;
+            this.extentX = extentX;
+            this.extentZ = extentZ;
+            this.height = height;
         }
     }
 
@@ -85,7 +101,7 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
                        MultiBufferSource buffers, int packedLight, int packedOverlay) {
         renderMesh(getMesh(blockEntity.hasBook()),
                 blockEntity.getBlockState().getValue(TypewriterBlock.FACING),
-                1.0F / 16.0F, poseStack, buffers, packedLight, packedOverlay);
+                blockFit / 16.0F, poseStack, buffers, packedLight, packedOverlay);
     }
 
     public static void renderItem(ItemStack item, PoseStack poseStack, MultiBufferSource buffers,
@@ -110,7 +126,8 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
         // Le maillage est centré sur x/z autour de 0 (voir l'export) : aucun décalage à ajouter.
         // L'avant du modèle (clavier) regarde vers +X ; on le tourne pour qu'il regarde vers "facing".
         poseStack.mulPose(Vector3f.YP.rotationDegrees(-facing.toYRot() - 90.0F));
-        poseStack.scale(scale, scale, scale);
+        float s = scale * mesh.relativeScale;
+        poseStack.scale(s, s, s);
         for (int textureIndex = 0; textureIndex < mesh.byTexture.size(); textureIndex++) {
             List<Face> faces = mesh.byTexture.get(textureIndex);
             if (faces.isEmpty()) continue;
@@ -148,24 +165,32 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
     }
 
     private static Mesh getMesh(boolean hasBook) {
-        if (hasBook) {
-            if (paperMesh == null && !attemptedPaperLoad) {
-                attemptedPaperLoad = true;
-                paperMesh = loadMesh(PAPER_MODEL);
-            }
-            if (paperMesh != null) return paperMesh;
-            return getMesh(false);
-        }
-        if (noPaperMesh == null && !attemptedNoPaperLoad) {
-            attemptedNoPaperLoad = true;
-            noPaperMesh = loadMesh(NO_PAPER_MODEL);
-        }
-        if (noPaperMesh != null) return noPaperMesh;
-        if (paperMesh == null && !attemptedPaperLoad) {
+        loadMeshesOnce();
+        if (hasBook) return paperMesh != null ? paperMesh : noPaperMesh;
+        return noPaperMesh != null ? noPaperMesh : paperMesh;
+    }
+
+    private static void loadMeshesOnce() {
+        if (attemptedPaperLoad && attemptedNoPaperLoad) return;
+        if (!attemptedPaperLoad) {
             attemptedPaperLoad = true;
             paperMesh = loadMesh(PAPER_MODEL);
         }
-        return paperMesh;
+        if (!attemptedNoPaperLoad) {
+            attemptedNoPaperLoad = true;
+            noPaperMesh = loadMesh(NO_PAPER_MODEL);
+        }
+        // Les deux modèles représentent la même machine : leur profondeur (z) doit être identique.
+        if (paperMesh != null && noPaperMesh != null && noPaperMesh.extentZ > 0.0F && paperMesh.extentZ > 0.0F) {
+            noPaperMesh.relativeScale = paperMesh.extentZ / noPaperMesh.extentZ;
+        }
+        // Échelle du bloc : le modèle le plus grand (avec papier) doit tenir dans la hitbox.
+        Mesh reference = paperMesh != null ? paperMesh : noPaperMesh;
+        if (reference != null && reference.height > 0.0F) {
+            float horizontal = Math.max(reference.extentX, reference.extentZ);
+            blockFit = Math.min(HITBOX_HEIGHT_PX / reference.height,
+                    horizontal > 0.0F ? HITBOX_FOOTPRINT_PX / horizontal : Float.MAX_VALUE);
+        }
     }
 
     private static Mesh loadMesh(ResourceLocation model) {
@@ -200,6 +225,9 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
                 for (int i = 0; i < textureCount; i++) byTexture.add(new ArrayList<>());
                 int faceCount = in.readInt();
                 if (faceCount < 0 || faceCount > 100000) throw new IOException("Invalid typewriter face count");
+                float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE;
+                float minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+                float minZ = Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
                 for (int i = 0; i < faceCount; i++) {
                     int textureIndex = in.readInt();
                     float nx = in.readFloat();
@@ -213,10 +241,16 @@ public final class TypewriterBlockEntityRenderer implements BlockEntityRenderer<
                     for (int v = 0; v < vertexCount; v++) {
                         vertices[v] = new Vertex(in.readFloat(), in.readFloat(), in.readFloat(),
                                 in.readFloat(), in.readFloat());
+                        minX = Math.min(minX, vertices[v].x);
+                        maxX = Math.max(maxX, vertices[v].x);
+                        minY = Math.min(minY, vertices[v].y);
+                        maxY = Math.max(maxY, vertices[v].y);
+                        minZ = Math.min(minZ, vertices[v].z);
+                        maxZ = Math.max(maxZ, vertices[v].z);
                     }
                     addAsQuads(byTexture.get(textureIndex), nx, ny, nz, vertices);
                 }
-                return new Mesh(textures, byTexture);
+                return new Mesh(textures, byTexture, maxX - minX, maxZ - minZ, maxY - minY);
             }
         } catch (Exception e) {
             PocketDoorMod.LOGGER.error("Unable to load typewriter mesh {}", model, e);
