@@ -1,0 +1,12 @@
+{
+  "variants": {
+    "facing=north,positive=false": {"model":"pocketdoor:block/desk_part"},
+    "facing=north,positive=true": {"model":"pocketdoor:block/desk_part"},
+    "facing=south,positive=false": {"model":"pocketdoor:block/desk_part"},
+    "facing=south,positive=true": {"model":"pocketdoor:block/desk_part"},
+    "facing=east,positive=false": {"model":"pocketdoor:block/desk_part"},
+    "facing=east,positive=true": {"model":"pocketdoor:block/desk_part"},
+    "facing=west,positive=false": {"model":"pocketdoor:block/desk_part"},
+    "facing=west,positive=true": {"model":"pocketdoor:block/desk_part"}
+  }
+}

@@ -25,7 +25,8 @@ import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.level.block.DoorBlock;
 
 import java.util.Optional;
-
+import fr.jmproduction.pocketdoor.block.DeskBlock;
+import fr.jmproduction.pocketdoor.block.DeskPartBlock;
 /** One-time deterministic/procedural generation of the 17x17x10 pocket office. */
 public final class PocketOfficeGenerator {
     public static final int MIN_X = 0;
@@ -154,9 +155,12 @@ public final class PocketOfficeGenerator {
     private static void placeDeskLayout(ServerLevel level) {
         // Existing typewriter coordinates establish the desk centre at (8, 66, 6).
         // The three desk blocks run east-west; the chair is directly north of centre.
-        for (int x = 7; x <= 9; x++) {
-            place(level, new BlockPos(x, 65, 6), ModBlocks.DESK.defaultBlockState());
-        }
+        BlockPos center = new BlockPos(8, 65, 6);
+        var desk = ModBlocks.DESK.defaultBlockState().setValue(DeskBlock.FACING, Direction.NORTH);
+        place(level, center, desk);
+        Direction axis = Direction.EAST;
+        place(level, center.relative(axis.getOpposite()), ModBlocks.DESK_PART.defaultBlockState().setValue(DeskPartBlock.FACING, Direction.NORTH).setValue(DeskPartBlock.POSITIVE, false));
+        place(level, center.relative(axis), ModBlocks.DESK_PART.defaultBlockState().setValue(DeskPartBlock.FACING, Direction.NORTH).setValue(DeskPartBlock.POSITIVE, true));
         place(level, new BlockPos(8, 65, 7), ModBlocks.POCKET_CHAIR.defaultBlockState()
                 .setValue(ChairBlock.FACING, Direction.SOUTH));
         place(level, new BlockPos(8, 66, 6),

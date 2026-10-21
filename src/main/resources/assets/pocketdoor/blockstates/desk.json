@@ -1,1 +1,19 @@
-{"variants":{"":{"model":"pocketdoor:block/desk"}}}
+{
+  "variants": {
+    "facing=north": {
+      "model": "pocketdoor:block/desk",
+      "y": 180
+    },
+    "facing=south": {
+      "model": "pocketdoor:block/desk"
+    },
+    "facing=east": {
+      "model": "pocketdoor:block/desk",
+      "y": 90
+    },
+    "facing=west": {
+      "model": "pocketdoor:block/desk",
+      "y": 270
+    }
+  }
+}

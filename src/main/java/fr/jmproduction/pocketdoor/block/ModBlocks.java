@@ -35,6 +35,8 @@ public final class ModBlocks {
 
     public static final Block DESK = register("desk", new DeskBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS).strength(1.5F)));
 
+    public static final Block DESK_PART = registerBlockOnly("desk_part", new DeskPartBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS).strength(1.5F)));
+
     public static final Block TYPEWRITER = register(
             "typewriter",
             new TypewriterBlock(BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK)
