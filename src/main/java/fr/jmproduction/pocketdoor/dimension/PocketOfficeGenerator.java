@@ -3,6 +3,7 @@ package fr.jmproduction.pocketdoor.dimension;
 import fr.jmproduction.pocketdoor.PocketDoorMod;
 import fr.jmproduction.pocketdoor.block.ModBlocks;
 import fr.jmproduction.pocketdoor.block.TypewriterBlock;
+import fr.jmproduction.pocketdoor.block.ChairBlock;
 import fr.jmproduction.pocketdoor.data.PocketDoorSavedData;
 import fr.jmproduction.pocketdoor.data.PocketOfficeSavedData;
 import net.minecraft.core.BlockPos;
@@ -145,84 +146,20 @@ public final class PocketOfficeGenerator {
         }
     }
 
+    /** Places the office furniture as a centered three-block desk and one chair. */
     private static void generateFurniture(ServerLevel level) {
-        BlockState plank = Blocks.CHAIN.defaultBlockState();
-        BlockState stair = Blocks.OAK_STAIRS.defaultBlockState()
-                .setValue(StairBlock.HALF, Half.TOP);
-        BlockState lantern = Blocks.LANTERN.defaultBlockState();
-
-        for (int x = 5; x <= 11; x++) {
-            place(level, new BlockPos(x, 65, 4), plank);
-            place(level, new BlockPos(x, 65, 5), plank);
-            place(level, new BlockPos(x, 65, 6), plank);
-        }
-
-        place(level, new BlockPos(5, 66, 4), stair);
-        place(level, new BlockPos(6, 66, 4), stair);
-        place(level, new BlockPos(7, 66, 4), stair);
-        place(level, new BlockPos(8, 66, 4), stair);
-        place(level, new BlockPos(9, 66, 4), stair);
-        place(level, new BlockPos(10, 66, 4), stair);
-        place(level, new BlockPos(11, 66, 4), stair);
-        place(level, new BlockPos(5, 67, 4), lantern.setValue(LanternBlock.HANGING, true));
-
-        place(level, new BlockPos(5, 66, 5), stair);
-        place(level, new BlockPos(6, 66, 5), plank);
-        place(level, new BlockPos(7, 66, 5), plank);
-        place(level, new BlockPos(8, 66, 5), plank);
-        place(level, new BlockPos(9, 66, 5), plank);
-        place(level, new BlockPos(10, 66, 5), plank);
-        place(level, new BlockPos(11, 66, 5), stair);
-
-        place(level, new BlockPos(5, 66, 6), stair);
-        place(level, new BlockPos(6, 66, 6), plank);
-        place(level, new BlockPos(7, 66, 6), plank);
-        place(level, new BlockPos(8, 66, 6), stair);
-        place(level, new BlockPos(9, 66, 6), plank);
-        place(level, new BlockPos(10, 66, 6), plank);
-        place(level, new BlockPos(11, 66, 6), stair);
-
-        BlockPos typewriterPos = new BlockPos(8, 67, 6);
-        place(level, typewriterPos,
-                ModBlocks.TYPEWRITER.defaultBlockState().setValue(TypewriterBlock.FACING, Direction.NORTH));
-
-        for (int x = 6; x <= 10; x++) {
-            place(level, new BlockPos(x, 65, 8), Blocks.OAK_SLAB.defaultBlockState()
-                    .setValue(SlabBlock.TYPE, SlabType.TOP));
-        }
-        place(level, new BlockPos(8, 65, 8), ModBlocks.POCKET_CHAIR.defaultBlockState());
+        placeDeskLayout(level);
     }
 
     private static void placeDeskLayout(ServerLevel level) {
-        BlockState plank = Blocks.CHAIN.defaultBlockState();
-        BlockState stair = Blocks.OAK_STAIRS.defaultBlockState()
-                .setValue(StairBlock.HALF, Half.TOP);
-        BlockState lantern = Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, true);
-        for (int x = 5; x <= 11; x++) {
-            for (int z = 4; z <= 6; z++) {
-                place(level, new BlockPos(x, 65, z), plank);
-            }
+        // Existing typewriter coordinates establish the desk centre at (8, 66, 6).
+        // The three desk blocks run east-west; the chair is directly north of centre.
+        for (int x = 7; x <= 9; x++) {
+            place(level, new BlockPos(x, 65, 6), ModBlocks.DESK.defaultBlockState());
         }
-        for (int x = 5; x <= 11; x++) place(level, new BlockPos(x, 66, 4), stair);
-        place(level, new BlockPos(5, 67, 4), lantern);
-
-        place(level, new BlockPos(5, 66, 5), stair);
-        place(level, new BlockPos(6, 66, 5), plank);
-        place(level, new BlockPos(7, 66, 5), plank);
-        place(level, new BlockPos(8, 66, 5), plank);
-        place(level, new BlockPos(9, 66, 5), plank);
-        place(level, new BlockPos(10, 66, 5), plank);
-        place(level, new BlockPos(11, 66, 5), stair);
-
-        place(level, new BlockPos(5, 66, 6), stair);
-        place(level, new BlockPos(6, 66, 6), plank);
-        place(level, new BlockPos(7, 66, 6), plank);
-        place(level, new BlockPos(8, 66, 6), stair);
-        place(level, new BlockPos(9, 66, 6), plank);
-        place(level, new BlockPos(10, 66, 6), plank);
-        place(level, new BlockPos(11, 66, 6), stair);
-
-        place(level, new BlockPos(8, 67, 6),
+        place(level, new BlockPos(8, 65, 7), ModBlocks.POCKET_CHAIR.defaultBlockState()
+                .setValue(ChairBlock.FACING, Direction.SOUTH));
+        place(level, new BlockPos(8, 66, 6),
                 ModBlocks.TYPEWRITER.defaultBlockState().setValue(TypewriterBlock.FACING, Direction.NORTH));
     }
 

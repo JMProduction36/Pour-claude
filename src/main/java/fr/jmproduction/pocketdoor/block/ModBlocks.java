@@ -26,12 +26,14 @@ public final class ModBlocks {
     );
 
     /** Invisible seat block used by the procedural office. */
-    public static final Block POCKET_CHAIR = registerBlockOnly(
+    public static final Block POCKET_CHAIR = register(
             "pocket_chair",
             new ChairBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS)
                     .noOcclusion()
                     .strength(0.2F))
     );
+
+    public static final Block DESK = register("desk", new DeskBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS).strength(1.5F)));
 
     public static final Block TYPEWRITER = register(
             "typewriter",

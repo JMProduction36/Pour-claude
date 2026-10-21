@@ -2,5 +2,7 @@
   "key.categories.pocketdoor": "Pocket Door",
   "key.pocketdoor.toggle_portal": "Create Pocket Door",
   "key.pocketdoor.remove_portal": "Remove Pocket Door",
-  "itemGroup.pocketdoor.items": "Pocket Door"
+  "itemGroup.pocketdoor.items": "Pocket Door",
+  "block.pocketdoor.pocket_chair": "Pocket Office Chair",
+  "block.pocketdoor.desk": "Pocket Office Desk"
 }

@@ -1,7 +1,1 @@
-{
-  "variants": {
-    "": {
-      "model": "minecraft:block/air"
-    }
-  }
-}
+{"variants":{"facing=north":{"model":"pocketdoor:block/pocket_chair","y":180},"facing=south":{"model":"pocketdoor:block/pocket_chair"},"facing=east":{"model":"pocketdoor:block/pocket_chair","y":90},"facing=west":{"model":"pocketdoor:block/pocket_chair","y":270}}}
