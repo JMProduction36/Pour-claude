@@ -26,6 +26,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -40,6 +41,13 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * vanilla {@link SimpleMenuProvider}: there is no custom
  * {@link net.minecraft.world.inventory.MenuType} and no Fabric screen-handler
  * dependency.</p>
+ *
+ * <p>The desk is laid out perpendicular to its {@code FACING}: for
+ * {@code NORTH}/{@code SOUTH} the three blocks run along the X axis, for
+ * {@code EAST}/{@code WEST} they run along the Z axis. The collision /
+ * outline shape, the side anchors and the in-master click-to-view mapping
+ * all follow that same rule, so the desk never appears "twisted" when
+ * placed to the left or right of the player.</p>
  */
 public final class DeskBlock extends HorizontalDirectionalBlock implements EntityBlock {
 
@@ -48,7 +56,22 @@ public final class DeskBlock extends HorizontalDirectionalBlock implements Entit
     public static final int VIEW_RIGHT = 1;
     public static final int VIEW_CENTER = 2;
 
-    private static final VoxelShape SHAPE = Shapes.or(Block.box(-16, 0, 0, 32, 16, 16));
+    /**
+     * Authored hitbox: the desk extends 3 blocks along the X axis (one block
+     * to the left of the master at X=-16, the master at X=[0,16], and one
+     * block to the right at X=[16,32]). Used when {@code FACING} is on the
+     * Z axis (NORTH/SOUTH) – the parts sit along X.
+     */
+    private static final VoxelShape X_SHAPE = Shapes.or(Block.box(-16, 0, 0, 32, 16, 16));
+
+    /**
+     * Rotated hitbox: same 3-block-wide footprint but along the Z axis. Used
+     * when {@code FACING} is on the X axis (EAST/WEST) – the parts sit along
+     * Z. Without this, the previous code always returned {@link #X_SHAPE},
+     * which left the outline / collision box stuck on the X axis even
+     * though the visual model had been rotated 90°.
+     */
+    private static final VoxelShape Z_SHAPE = Shapes.or(Block.box(0, 0, -16, 16, 16, 32));
 
     public DeskBlock(Properties properties) {
         super(properties.noOcclusion());
@@ -65,14 +88,21 @@ public final class DeskBlock extends HorizontalDirectionalBlock implements Entit
         return RenderShape.MODEL;
     }
 
+    /**
+     * Hitbox must follow {@code FACING}. The block-model {@code y} rotation
+     * (see {@code assets/pocketdoor/blockstates/desk.json}) rotates the
+     * 3-block-wide model so it visually runs perpendicular to {@code FACING};
+     * the outline / collision box has to follow the same axis or the
+     * selection box stays "facing" the wrong way for EAST/WEST placements.
+     */
     @Override
     public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext c) {
-        return SHAPE;
+        return state.getValue(FACING).getAxis() == Direction.Axis.Z ? X_SHAPE : Z_SHAPE;
     }
 
     @Override
     public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext c) {
-        return SHAPE;
+        return state.getValue(FACING).getAxis() == Direction.Axis.Z ? X_SHAPE : Z_SHAPE;
     }
 
     @Override
@@ -96,13 +126,27 @@ public final class DeskBlock extends HorizontalDirectionalBlock implements Entit
         return new FurnitureBlockEntity(pos, state);
     }
 
+    /**
+     * The master's 3-block-wide hitbox lets the player click anywhere in the
+     * desk footprint. We split that footprint into thirds along the axis
+     * perpendicular to {@code FACING}:
+     * <ul>
+     *   <li>left third  → {@link #VIEW_LEFT}  (27-slot left half)</li>
+     *   <li>middle third → {@link #VIEW_CENTER} (54-slot double chest)</li>
+     *   <li>right third → {@link #VIEW_RIGHT} (27-slot right half)</li>
+     * </ul>
+     * The same mapping works for all four horizontal {@code FACING}s because
+     * we compute the click position in the desk-local perpendicular axis
+     * rather than relying on a hard-coded world axis.
+     */
     @Override
     public InteractionResult use(BlockState state, Level level, BlockPos pos,
                                  Player player, InteractionHand hand, BlockHitResult hit) {
         if (level.isClientSide) {
             return InteractionResult.SUCCESS;
         }
-        openView((ServerPlayer) player, level, pos, VIEW_CENTER);
+        int view = resolveViewFromHit(state, pos, hit.getLocation());
+        openView((ServerPlayer) player, level, pos, view);
         return InteractionResult.CONSUME;
     }
 
@@ -116,15 +160,41 @@ public final class DeskBlock extends HorizontalDirectionalBlock implements Entit
                 Containers.dropContents(level, pos, furniture.getRight());
             }
             // Then clean up the two side anchors that may still be in the world.
-            Direction axis = state.getValue(FACING).getAxis() == Direction.Axis.X ? Direction.EAST : Direction.SOUTH;
+            // The anchors always sit perpendicular to FACING, with the POSITIVE=true
+            // anchor on the player's right side. For a desk FACING NORTH that means
+            // EAST, for SOUTH that means WEST, for EAST that means SOUTH and for
+            // WEST that means NORTH – which is exactly what FACING.getClockWise() gives.
+            // The previous version used FACING.getAxis() to hard-pick EAST/SOUTH,
+            // which broke every FACING where the player wasn't looking along +Z
+            // (i.e. the EAST/WEST placement case reported in the bug).
+            Direction positiveSide = state.getValue(FACING).getClockWise();
             for (boolean positive : new boolean[]{false, true}) {
-                BlockPos side = pos.relative(positive ? axis : axis.getOpposite());
+                BlockPos side = pos.relative(positive ? positiveSide : positiveSide.getOpposite());
                 if (level.getBlockState(side).is(ModBlocks.DESK_PART)) {
                     level.setBlock(side, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 3);
                 }
             }
         }
         super.onRemove(state, level, pos, next, moved);
+    }
+
+    /**
+     * Map a click on the master's 3-block-wide outline to one of the three
+     * sub-chest views. {@code hit} is in world coordinates; we project it on
+     * the axis perpendicular to {@code FACING} so the result is independent
+     * of which way the desk is facing.
+     */
+    private static int resolveViewFromHit(BlockState state, BlockPos masterPos, Vec3 hit) {
+        Direction facing = state.getValue(FACING);
+        // side < -0.5 → left third (block at master - 1 along perpendicular)
+        // side >  0.5 → right third (block at master + 1 along perpendicular)
+        // otherwise   → centre third (the master block itself)
+        double side = facing.getAxis() == Direction.Axis.Z
+                ? hit.x - (masterPos.getX() + 0.5)
+                : hit.z - (masterPos.getZ() + 0.5);
+        if (side < -0.5) return VIEW_LEFT;
+        if (side > 0.5) return VIEW_RIGHT;
+        return VIEW_CENTER;
     }
 
     /**

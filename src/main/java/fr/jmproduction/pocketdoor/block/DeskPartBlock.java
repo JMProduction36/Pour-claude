@@ -25,6 +25,14 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * Invisible side anchors: the master desk owns rendering and redirects
  * interaction. Each part opens the left or right 27-slot sub-chest of the
  * shared two-half inventory held by the master.
+ *
+ * <p>The part always sits perpendicular to the master's {@code FACING}:
+ * POSITIVE=true is on the player's right side, POSITIVE=false on the left.
+ * This matches the placement done by {@code PocketOfficeGenerator} and the
+ * cleanup done in {@link DeskBlock#onRemove}. The previous implementation
+ * used {@code FACING.getAxis()} to choose WEST/NORTH which is inconsistent
+ * with the rest of the code and broke when the desk was placed with
+ * FACING=SOUTH/EAST/WEST.</p>
  */
 public final class DeskPartBlock extends Block {
     public static final DirectionProperty FACING = DirectionProperty.create("facing", Direction.Plane.HORIZONTAL);
@@ -56,9 +64,15 @@ public final class DeskPartBlock extends Block {
         return SHAPE;
     }
 
+    /**
+     * Resolve the master position from this part's state. The master sits on
+     * the axis perpendicular to {@code FACING}: POSITIVE=true is on the
+     * player's right (the same {@code FACING.getClockWise()} side used everywhere
+     * else in the desk), POSITIVE=false on the left (the opposite side).
+     */
     public static BlockPos masterPos(BlockPos pos, BlockState state) {
-        Direction axis = state.getValue(FACING).getAxis() == Direction.Axis.X ? Direction.WEST : Direction.NORTH;
-        if (state.getValue(POSITIVE)) axis = axis.getOpposite();
+        Direction positiveSide = state.getValue(FACING).getClockWise();
+        Direction axis = state.getValue(POSITIVE) ? positiveSide : positiveSide.getOpposite();
         return pos.relative(axis);
     }
 
