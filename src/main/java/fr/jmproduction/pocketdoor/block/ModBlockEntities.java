@@ -12,6 +12,12 @@ public final class ModBlockEntities {
             BlockEntityType.Builder.of(TypewriterBlockEntity::new, ModBlocks.TYPEWRITER).build(null)
     );
 
+    public static final BlockEntityType<FurnitureBlockEntity> FURNITURE = Registry.register(
+            Registry.BLOCK_ENTITY_TYPE,
+            new ResourceLocation(PocketDoorMod.MOD_ID, "furniture"),
+            BlockEntityType.Builder.of(FurnitureBlockEntity::new, ModBlocks.DESK).build(null)
+    );
+
     private ModBlockEntities() {
     }
 
