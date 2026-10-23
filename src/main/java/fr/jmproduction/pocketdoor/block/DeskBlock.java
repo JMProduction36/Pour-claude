@@ -4,14 +4,15 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.CompoundContainer;
 import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.SimpleMenuProvider;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ChestMenu;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
@@ -30,23 +31,11 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
- * Master block of the three-block-wide desk. Each of the three blocks (one master
- * + two side anchors) opens the SAME single 54-slot ("double chest") inventory
- * stored on the master's {@link FurnitureBlockEntity}. There is no per-third
- * sub-view any more: clicking anywhere on the desk footprint (master or parts)
- * resolves to the master and opens the unified inventory.
- *
- * <p>The desk is laid out perpendicular to its {@code FACING}: for
- * {@code NORTH}/{@code SOUTH} the three blocks run along the X axis, for
- * {@code EAST}/{@code WEST} they run along the Z axis. Each individual block
- * owns a simple 1x1x1 outline/collision shape — the rendered model is the only
- * thing that is 3-blocks wide. This guarantees a valid
- * {@code UseItemOnPacket} hit position for every block in the footprint, no
- * matter which way the player is facing.</p>
+ * Master block of the three-block-wide desk. The model spans three blocks,
+ * while this block and its two invisible side anchors each have a 1x1x1 hitbox.
  */
 public final class DeskBlock extends HorizontalDirectionalBlock implements EntityBlock {
 
-    /** Single, full footprint hitbox for the master block (a 1x1x1 cube). */
     private static final VoxelShape SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 16.0D, 16.0D);
 
     public DeskBlock(Properties properties) {
@@ -85,9 +74,45 @@ public final class DeskBlock extends HorizontalDirectionalBlock implements Entit
     }
 
     @Override
-    public BlockState getStateForPlacement(BlockPlaceContext c) {
-        if (!c.getLevel().getBlockState(c.getClickedPos()).canBeReplaced(Fluids.EMPTY)) return null;
-        return defaultBlockState().setValue(FACING, c.getHorizontalDirection().getOpposite());
+    public BlockState getStateForPlacement(BlockPlaceContext context) {
+        Level level = context.getLevel();
+        BlockPos pos = context.getClickedPos();
+        if (!level.getBlockState(pos).canBeReplaced(Fluids.EMPTY)) {
+            return null;
+        }
+
+        // IMPORTANT: use the player's horizontal look direction, not the
+        // relative X/Z position of the target block. That makes the drawer
+        // fronts face the player even when the desk is placed to the left or
+        // right of the crosshair. The block model's default front is SOUTH.
+        Player player = context.getPlayer();
+        Direction facing = player == null
+                ? Direction.SOUTH
+                : context.getHorizontalDirection().getOpposite();
+
+        // The desk occupies a 3-block-wide footprint perpendicular to FACING.
+        // Reserve both invisible side-hitbox blocks before allowing placement.
+        Direction right = facing.getClockWise();
+        if (!level.getBlockState(pos.relative(right)).canBeReplaced(Fluids.EMPTY)
+                || !level.getBlockState(pos.relative(right.getOpposite())).canBeReplaced(Fluids.EMPTY)) {
+            return null;
+        }
+
+        return defaultBlockState().setValue(FACING, facing);
+    }
+
+    /** Creates the two invisible side hitboxes for a player-placed three-block desk. */
+    @Override
+    public void setPlacedBy(Level level, BlockPos pos, BlockState state, LivingEntity placer, ItemStack stack) {
+        super.setPlacedBy(level, pos, state, placer, stack);
+        if (level.isClientSide) return;
+        Direction right = state.getValue(FACING).getClockWise();
+        level.setBlock(pos.relative(right), ModBlocks.DESK_PART.defaultBlockState()
+                .setValue(DeskPartBlock.FACING, state.getValue(FACING))
+                .setValue(DeskPartBlock.POSITIVE, true), 3);
+        level.setBlock(pos.relative(right.getOpposite()), ModBlocks.DESK_PART.defaultBlockState()
+                .setValue(DeskPartBlock.FACING, state.getValue(FACING))
+                .setValue(DeskPartBlock.POSITIVE, false), 3);
     }
 
     @Override
@@ -105,10 +130,6 @@ public final class DeskBlock extends HorizontalDirectionalBlock implements Entit
         return new FurnitureBlockEntity(pos, state);
     }
 
-    /**
-     * Single unified inventory. Opening on the master always opens the
-     * 54-slot "double chest" backed by {@link FurnitureBlockEntity#getCompound()}.
-     */
     @Override
     public InteractionResult use(BlockState state, Level level, BlockPos pos,
                                  Player player, InteractionHand hand, BlockHitResult hit) {
@@ -122,14 +143,9 @@ public final class DeskBlock extends HorizontalDirectionalBlock implements Entit
     @Override
     public void onRemove(BlockState state, Level level, BlockPos pos, BlockState next, boolean moved) {
         if (!state.is(next.getBlock())) {
-            // Drop the contents of the unified 54-slot inventory so the player
-            // never loses their stored items when the master is broken.
             if (level.getBlockEntity(pos) instanceof FurnitureBlockEntity furniture) {
                 Containers.dropContents(level, pos, furniture.getCompound());
             }
-            // Clean up the two side anchors that may still be in the world. They
-            // always sit perpendicular to FACING (use FACING.getClockWise() for
-            // the player's right side and its opposite for the left side).
             Direction rightSide = state.getValue(FACING).getClockWise();
             Direction leftSide = rightSide.getOpposite();
             for (Direction side : new Direction[]{leftSide, rightSide}) {
@@ -142,11 +158,6 @@ public final class DeskBlock extends HorizontalDirectionalBlock implements Entit
         super.onRemove(state, level, pos, next, moved);
     }
 
-    /**
-     * Opens the unified 54-slot desk inventory on the client. Used by both
-     * {@link DeskBlock#use} and {@link DeskPartBlock#use}; no view mode is
-     * passed because there is now a single shared view.
-     */
     public static void openInventory(ServerPlayer player, Level level, BlockPos pos) {
         BlockEntity be = level.getBlockEntity(pos);
         if (!(be instanceof FurnitureBlockEntity furniture)) {
@@ -160,7 +171,6 @@ public final class DeskBlock extends HorizontalDirectionalBlock implements Entit
         player.openMenu(provider);
     }
 
-    /** Build the 54-slot chest menu directly (kept for compatibility). */
     public static AbstractContainerMenu buildMenu(int containerId,
                                                    net.minecraft.world.entity.player.Inventory playerInv,
                                                    FurnitureBlockEntity furniture) {

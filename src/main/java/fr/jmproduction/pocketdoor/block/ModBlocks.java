@@ -33,7 +33,12 @@ public final class ModBlocks {
                     .strength(0.2F))
     );
 
-    public static final Block DESK = register("desk", new DeskBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS).strength(1.5F)));
+    // The desk is included in the Pocket Door creative tab.
+    public static final Block DESK = register(
+            "desk",
+            new DeskBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS).strength(1.5F)),
+            true
+    );
 
     public static final Block DESK_PART = registerBlockOnly("desk_part", new DeskPartBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS).strength(1.5F)));
 
@@ -71,5 +76,4 @@ public final class ModBlocks {
     public static void initialize() {
         PocketDoorMod.LOGGER.info("Registered Pocket Door blocks and pocket-office blocks.");
     }
-
 }
