@@ -3,36 +3,32 @@ package fr.jmproduction.pocketdoor.block;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.world.CompoundContainer;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * Backing storage for the {@link DeskBlock}. Holds two independent 27-slot
- * {@link SimpleContainer} sub-inventories: a left half and a right half.
- * The two halves together form the 54-slot "double chest" view opened on the
- * master block; the two side anchors ({@link DeskPartBlock}) only expose
- * their respective half.
+ * Block entity that owns the unified 54-slot "double chest" inventory of a
+ * desk. The user-visible inventory is one big 54-slot container, exposed via
+ * {@link #getCompound()}.
  *
- * <p>State persists across chunk saves through standard NBT – each half is
- * serialised under its own {@link ListTag} (key {@code "left"} / {@code
- * "right"} on the block entity root) so reloads do not lose items.</p>
- *
- * <p>The persistence layer writes and reads per-slot {@link CompoundTag}s
- * directly, rather than going through {@code ContainerHelper} or relying on
- * {@code SimpleContainer#getItems()}. That keeps the code compatible across
- * Minecraft versions where those APIs have shifted (for example,
- * {@code SimpleContainer#getItems()} is not part of the stable Fabric
- * contract in some mapped versions).</p>
+ * <p>For NBT backwards compatibility with older saves that stored items under
+ * the {@code left}/{@code right} sub-keys (the previous two-half design),
+ * the two 27-slot halves are still kept in memory and serialised under those
+ * exact tags. {@link #getCompound()} returns a {@link CompoundContainer}
+ * wrapping both halves, so any pre-existing items are still reachable through
+ * the unified 54-slot view and any new items land in the right half (then
+ * overflow into the left half, like vanilla double chests).</p>
  */
 public class FurnitureBlockEntity extends BlockEntity {
 
-    /** Number of slots in a single half (matches a vanilla single chest). */
     public static final int HALF_SIZE = 27;
 
     private final SimpleContainer left = new SimpleContainer(HALF_SIZE);
     private final SimpleContainer right = new SimpleContainer(HALF_SIZE);
+    private final CompoundContainer compound = new CompoundContainer(right, left);
 
     public FurnitureBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.FURNITURE, pos, state);
@@ -44,6 +40,14 @@ public class FurnitureBlockEntity extends BlockEntity {
 
     public SimpleContainer getRight() {
         return right;
+    }
+
+    /**
+     * Returns the unified 54-slot view used by the single desk menu. Vanilla
+     * double-chest semantics apply (right half fills first, then left).
+     */
+    public CompoundContainer getCompound() {
+        return compound;
     }
 
     // -------- NBT --------
@@ -58,27 +62,24 @@ public class FurnitureBlockEntity extends BlockEntity {
     @Override
     public void load(CompoundTag tag) {
         super.load(tag);
-        // Clear in case the level is being reloaded so leftover items from the
-        // previous load do not mix with the freshly-read ones.
+        // Wipe before loading so a malformed save can't leave stale items.
         for (int i = 0; i < HALF_SIZE; i++) {
             left.setItem(i, ItemStack.EMPTY);
             right.setItem(i, ItemStack.EMPTY);
         }
         if (tag.contains("left", 9 /* ListTag */)) {
-            loadHalf(tag.getList("left", 10 /* CompoundTag */), left);
+            loadHalf(left, tag.getList("left", 10 /* CompoundTag */));
         }
         if (tag.contains("right", 9 /* ListTag */)) {
-            loadHalf(tag.getList("right", 10 /* CompoundTag */), right);
+            loadHalf(right, tag.getList("right", 10 /* CompoundTag */));
         }
     }
 
     /**
-     * Build a {@link ListTag} where each entry is a per-slot
-     * {@link CompoundTag} carrying the slot index under {@code "Slot"} and
-     * the serialised {@link ItemStack} written through
-     * {@link ItemStack#save(CompoundTag)}. Empty slots are skipped, matching
-     * the vanilla chest format produced by
-     * {@code ContainerHelper.saveAllItems}.
+     * Mirror of vanilla chest NBT: only non-empty stacks are written, with
+     * their slot index under the {@code Slot} byte. Uses the public
+     * {@link ItemStack#save} / {@link ItemStack#of} API so the contract is
+     * stable across Mojang mappings.
      */
     private static ListTag saveHalf(SimpleContainer container) {
         ListTag list = new ListTag();
@@ -89,28 +90,19 @@ public class FurnitureBlockEntity extends BlockEntity {
             }
             CompoundTag entry = new CompoundTag();
             entry.putByte("Slot", (byte) i);
-            // ItemStack.save writes "id", "Count" and the optional "tag"
-            // sub-compound directly into the supplied tag.
             stack.save(entry);
             list.add(entry);
         }
         return list;
     }
 
-    /**
-     * Re-hydrate a {@link SimpleContainer} from a {@link ListTag} produced by
-     * {@link #saveHalf(SimpleContainer)}. Entries whose slot index is out of
-     * range are silently ignored so corrupted saves never throw.
-     */
-    private static void loadHalf(ListTag list, SimpleContainer container) {
+    private static void loadHalf(SimpleContainer container, ListTag list) {
         for (int i = 0; i < list.size(); i++) {
             CompoundTag entry = list.getCompound(i);
             int slot = entry.getByte("Slot") & 0xFF;
             if (slot < 0 || slot >= HALF_SIZE) {
                 continue;
             }
-            // ItemStack.of accepts the same shape ItemStack.save emits, with
-            // "id", "Count" and optional "tag".
             container.setItem(slot, ItemStack.of(entry));
         }
     }

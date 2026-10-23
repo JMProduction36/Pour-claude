@@ -22,22 +22,21 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
- * Invisible side anchors: the master desk owns rendering and redirects
- * interaction. Each part opens the left or right 27-slot sub-chest of the
- * shared two-half inventory held by the master.
+ * Invisible side anchor of the three-block-wide desk. Has no rendering and no
+ * inventory of its own: every interaction is forwarded to the master
+ * {@link DeskBlock}, which opens the single, unified 54-slot inventory.
  *
- * <p>The part always sits perpendicular to the master's {@code FACING}:
- * POSITIVE=true is on the player's right side, POSITIVE=false on the left.
- * This matches the placement done by {@code PocketOfficeGenerator} and the
- * cleanup done in {@link DeskBlock#onRemove}. The previous implementation
- * used {@code FACING.getAxis()} to choose WEST/NORTH which is inconsistent
- * with the rest of the code and broke when the desk was placed with
- * FACING=SOUTH/EAST/WEST.</p>
+ * <p>The anchor always sits on the axis perpendicular to the master's
+ * {@code FACING}: {@code POSITIVE=true} on the player's right side
+ * ({@code FACING.getClockWise()}) and {@code POSITIVE=false} on the left
+ * ({@code FACING.getCounterClockWise()}).</p>
  */
 public final class DeskPartBlock extends Block {
     public static final DirectionProperty FACING = DirectionProperty.create("facing", Direction.Plane.HORIZONTAL);
     public static final BooleanProperty POSITIVE = BooleanProperty.create("positive");
-    private static final VoxelShape SHAPE = Block.box(0, 0, 0, 16, 16, 16);
+
+    /** Plain 1x1x1 outline/collision shape — guarantees a valid raycast hit. */
+    private static final VoxelShape SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 16.0D, 16.0D);
 
     public DeskPartBlock(Properties properties) {
         super(properties.noOcclusion());
@@ -64,26 +63,39 @@ public final class DeskPartBlock extends Block {
         return SHAPE;
     }
 
+    @Override
+    public VoxelShape getOcclusionShape(BlockState state, BlockGetter level, BlockPos pos) {
+        return SHAPE;
+    }
+
+    @Override
+    public VoxelShape getInteractionShape(BlockState state, BlockGetter level, BlockPos pos) {
+        return SHAPE;
+    }
+
     /**
      * Resolve the master position from this part's state. The master sits on
      * the axis perpendicular to {@code FACING}: POSITIVE=true is on the
-     * player's right (the same {@code FACING.getClockWise()} side used everywhere
-     * else in the desk), POSITIVE=false on the left (the opposite side).
+     * player's right side (FACING.getClockWise()), POSITIVE=false on the
+     * left (its opposite).
      */
     public static BlockPos masterPos(BlockPos pos, BlockState state) {
-        Direction positiveSide = state.getValue(FACING).getClockWise();
-        Direction axis = state.getValue(POSITIVE) ? positiveSide : positiveSide.getOpposite();
+        Direction rightSide = state.getValue(FACING).getClockWise();
+        Direction axis = state.getValue(POSITIVE) ? rightSide : rightSide.getOpposite();
         return pos.relative(axis);
     }
 
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {
-        // POSITIVE means this part is placed on the "right" side from the player's POV.
         return defaultBlockState()
                 .setValue(FACING, context.getHorizontalDirection().getOpposite())
                 .setValue(POSITIVE, false);
     }
 
+    /**
+     * Always open the unified desk inventory held by the master, regardless of
+     * which side of the desk was clicked.
+     */
     @Override
     public InteractionResult use(BlockState state, Level level, BlockPos pos,
                                  Player player, InteractionHand hand, BlockHitResult hit) {
@@ -94,8 +106,7 @@ public final class DeskPartBlock extends Block {
         if (!(level.getBlockEntity(master) instanceof FurnitureBlockEntity)) {
             return InteractionResult.PASS;
         }
-        int viewMode = state.getValue(POSITIVE) ? DeskBlock.VIEW_RIGHT : DeskBlock.VIEW_LEFT;
-        DeskBlock.openView((ServerPlayer) player, level, master, viewMode);
+        DeskBlock.openInventory((ServerPlayer) player, level, master);
         return InteractionResult.CONSUME;
     }
 
