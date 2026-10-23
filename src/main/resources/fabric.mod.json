@@ -4,17 +4,14 @@
   "version": "${version}",
   "name": "Pocket Door",
   "description": "A mysterious door leading to a pocket dimension.",
-  "authors": [
-    "JM Production"
-  ],
+  "authors": ["JM Production"],
   "license": "MIT",
   "environment": "*",
   "entrypoints": {
-    "main": [
-      "fr.jmproduction.pocketdoor.PocketDoorMod"
-    ],
+    "main": ["fr.jmproduction.pocketdoor.PocketDoorMod"],
     "client": [
-      "fr.jmproduction.pocketdoor.client.PocketDoorClient"
+      "fr.jmproduction.pocketdoor.client.PocketDoorClient",
+      "fr.jmproduction.pocketdoor.client.PocketGlassClient"
     ]
   },
   "depends": {

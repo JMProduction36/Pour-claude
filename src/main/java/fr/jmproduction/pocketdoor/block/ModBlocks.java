@@ -7,6 +7,7 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.GlassBlock;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 
 public final class ModBlocks {
@@ -21,6 +22,14 @@ public final class ModBlocks {
     public static final Block POCKET_OAK_PLANKS = registerBlockOnly(
             "pocket_oak_planks",
             new PocketWallBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS)
+                    .strength(-1.0F, 3600000.0F)
+                    .noLootTable())
+    );
+
+    /** Transparent glass used by the Pocket Office windows; immune to player mining and explosions. */
+    public static final Block POCKET_GLASS = registerBlockOnly(
+            "pocket_glass",
+            new GlassBlock(BlockBehaviour.Properties.copy(Blocks.GLASS)
                     .strength(-1.0F, 3600000.0F)
                     .noLootTable())
     );
