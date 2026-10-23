@@ -34,27 +34,29 @@ public final class ModBlocks {
                     .noLootTable())
     );
 
-    /** Invisible seat block used by the procedural office. */
+    /** Visible 3D chair used in the Pocket Office and craftable by the player. */
     public static final Block POCKET_CHAIR = register(
             "pocket_chair",
             new ChairBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS)
                     .noOcclusion()
-                    .strength(0.2F))
+                    .strength(0.2F)),
+            true
     );
 
-    // The desk is included in the Pocket Door creative tab.
     public static final Block DESK = register(
             "desk",
             new DeskBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS).strength(1.5F)),
             true
     );
 
-    public static final Block DESK_PART = registerBlockOnly("desk_part", new DeskPartBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS).strength(1.5F)));
+    public static final Block DESK_PART = registerBlockOnly(
+            "desk_part",
+            new DeskPartBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS).strength(1.5F))
+    );
 
     public static final Block TYPEWRITER = register(
             "typewriter",
-            new TypewriterBlock(BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK)
-                    .strength(2.0F)),
+            new TypewriterBlock(BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK).strength(2.0F)),
             true
     );
 

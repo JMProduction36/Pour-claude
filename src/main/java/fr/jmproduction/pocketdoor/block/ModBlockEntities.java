@@ -18,6 +18,12 @@ public final class ModBlockEntities {
             BlockEntityType.Builder.of(FurnitureBlockEntity::new, ModBlocks.DESK).build(null)
     );
 
+    public static final BlockEntityType<ChairBlockEntity> POCKET_CHAIR = Registry.register(
+            Registry.BLOCK_ENTITY_TYPE,
+            new ResourceLocation(PocketDoorMod.MOD_ID, "pocket_chair"),
+            BlockEntityType.Builder.of(ChairBlockEntity::new, ModBlocks.POCKET_CHAIR).build(null)
+    );
+
     private ModBlockEntities() {
     }
 

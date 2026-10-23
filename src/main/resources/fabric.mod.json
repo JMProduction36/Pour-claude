@@ -11,7 +11,8 @@
     "main": ["fr.jmproduction.pocketdoor.PocketDoorMod"],
     "client": [
       "fr.jmproduction.pocketdoor.client.PocketDoorClient",
-      "fr.jmproduction.pocketdoor.client.PocketGlassClient"
+      "fr.jmproduction.pocketdoor.client.PocketGlassClient",
+      "fr.jmproduction.pocketdoor.client.ChairClient"
     ]
   },
   "depends": {

@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "BRB",
+    "BRB",
+    "B B"
+  ],
+  "key": {
+    "B": {
+      "item": "minecraft:oak_fence"
+    },
+    "R": {
+      "item": "minecraft:red_wool"
+    }
+  },
+  "result": {
+    "item": "pocketdoor:pocket_chair",
+    "count": 1
+  }
+}
