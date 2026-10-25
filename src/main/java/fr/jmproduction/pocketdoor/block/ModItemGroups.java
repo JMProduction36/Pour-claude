@@ -21,7 +21,7 @@ public final class ModItemGroups {
             .appendItems((stacks, group) -> {
                 initialize();
                 for (Block block : ITEMS) {
-                    // Never add the same item twice to the tab.
+                    // Jamais deux fois le même objet dans l'onglet.
                     Item item = block.asItem();
                     if (stacks.stream().noneMatch(stack -> stack.is(item))) {
                         stacks.add(new ItemStack(item));
@@ -34,8 +34,9 @@ public final class ModItemGroups {
         ITEMS.add(block);
     }
 
-    /** Kept for the existing initialization call; the pocket door itself is deliberately not in the tab. */
     public static void initialize() {
+        if (initialized) return;
+        add(ModBlocks.POCKET_DOOR);
         initialized = true;
     }
 

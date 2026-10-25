@@ -2,7 +2,6 @@ package fr.jmproduction.pocketdoor;
 
 import fr.jmproduction.pocketdoor.block.ModBlockEntities;
 import fr.jmproduction.pocketdoor.block.ModBlocks;
-import fr.jmproduction.pocketdoor.entity.ModEntities;
 import fr.jmproduction.pocketdoor.event.PocketDoorEvents;
 import fr.jmproduction.pocketdoor.network.ModNetworking;
 import net.fabricmc.api.ModInitializer;
@@ -17,7 +16,6 @@ public class PocketDoorMod implements ModInitializer {
     public void onInitialize() {
         ModBlocks.initialize();
         ModBlockEntities.initialize();
-        ModEntities.initialize();
         ModNetworking.initialize();
         PocketDoorEvents.initialize();
         LOGGER.info("Pocket Door initialized.");

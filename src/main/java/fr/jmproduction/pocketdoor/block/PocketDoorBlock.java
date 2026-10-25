@@ -7,6 +7,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.DoorBlock;
@@ -65,6 +66,19 @@ public class PocketDoorBlock extends DoorBlock {
     @Override
     public boolean hasDynamicShape() {
         return true;
+    }
+
+    /**
+     * Pocket doors are configured with infinite blast resistance
+     * ({@code strength(-1.0F, 3600000.0F)}), so explosions normally cannot remove them.
+     * We still override {@link Block#wasExploded(Level, BlockPos, Explosion)} explicitly so
+     * that any modded or future explosion path that bypasses blast resistance (or any
+     * custom {@link Explosion} implementation) cannot destroy either half of the door,
+     * regardless of whether the door is open or closed at the moment of the blast.
+     */
+    @Override
+    public boolean wasExploded(Level level, BlockPos pos, Explosion explosion) {
+        return false;
     }
 
     private static boolean isNorthSouth(Direction direction) {

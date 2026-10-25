@@ -7,7 +7,6 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.GlassBlock;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 
 public final class ModBlocks {
@@ -26,37 +25,22 @@ public final class ModBlocks {
                     .noLootTable())
     );
 
-    /** Transparent glass used by the Pocket Office windows; immune to player mining and explosions. */
-    public static final Block POCKET_GLASS = registerBlockOnly(
-            "pocket_glass",
-            new GlassBlock(BlockBehaviour.Properties.copy(Blocks.GLASS)
-                    .strength(-1.0F, 3600000.0F)
-                    .noLootTable())
-    );
-
-    /** Visible 3D chair used in the Pocket Office and craftable by the player. */
+    /** Invisible seat block used by the procedural office. */
     public static final Block POCKET_CHAIR = register(
             "pocket_chair",
             new ChairBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS)
                     .noOcclusion()
-                    .strength(0.2F)),
-            true
+                    .strength(0.2F))
     );
 
-    public static final Block DESK = register(
-            "desk",
-            new DeskBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS).strength(1.5F)),
-            true
-    );
+    public static final Block DESK = register("desk", new DeskBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS).strength(1.5F)));
 
-    public static final Block DESK_PART = registerBlockOnly(
-            "desk_part",
-            new DeskPartBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS).strength(1.5F))
-    );
+    public static final Block DESK_PART = registerBlockOnly("desk_part", new DeskPartBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS).strength(1.5F)));
 
     public static final Block TYPEWRITER = register(
             "typewriter",
-            new TypewriterBlock(BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK).strength(2.0F)),
+            new TypewriterBlock(BlockBehaviour.Properties.copy(Blocks.IRON_BLOCK)
+                    .strength(2.0F)),
             true
     );
 
@@ -87,4 +71,5 @@ public final class ModBlocks {
     public static void initialize() {
         PocketDoorMod.LOGGER.info("Registered Pocket Door blocks and pocket-office blocks.");
     }
+
 }

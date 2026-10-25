@@ -9,11 +9,11 @@
     },
     "facing=east": {
       "model": "pocketdoor:block/desk",
-      "y": 270
+      "y": 90
     },
     "facing=west": {
       "model": "pocketdoor:block/desk",
-      "y": 90
+      "y": 270
     }
   }
 }

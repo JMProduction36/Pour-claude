@@ -4,7 +4,9 @@
   "version": "${version}",
   "name": "Pocket Door",
   "description": "A mysterious door leading to a pocket dimension.",
-  "authors": ["JM Production"],
+  "authors": [
+    "JM Production"
+  ],
   "license": "MIT",
   "environment": "*",
   "entrypoints": {
@@ -12,15 +14,15 @@
       "fr.jmproduction.pocketdoor.PocketDoorMod"
     ],
     "client": [
-      "fr.jmproduction.pocketdoor.client.PocketDoorClient",
-      "fr.jmproduction.pocketdoor.client.PocketGlassClient",
-      "fr.jmproduction.pocketdoor.client.ChairClient"
+      "fr.jmproduction.pocketdoor.client.PocketDoorClient"
     ]
   },
   "depends": {
     "fabricloader": ">=0.19.5",
     "minecraft": "~1.19.2",
     "java": ">=17",
-    "fabric-api": "*"
+    "fabric-api": "*",
+    "imm_ptl_core": "2.3.2",
+    "q_misc_util": "2.3.2"
   }
 }
