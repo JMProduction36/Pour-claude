@@ -11,9 +11,10 @@ public class PocketOfficeSavedData extends SavedData {
 
     /**
      * Version de l'agencement du mobilier.
-     * 1 = chaise au sud du bureau (anciens mondes) ; 2 = chaise au nord, de l'autre côté du bureau.
+     * 1 = chaise au sud du bureau (anciens mondes) ; 2 = chaise au nord, de l'autre côté du bureau ;
+     * 3 = bureau retourné de 180° (FACING = NORTH).
      */
-    public static final int CURRENT_LAYOUT = 2;
+    public static final int CURRENT_LAYOUT = 3;
 
     private boolean generated;
     private int layout;

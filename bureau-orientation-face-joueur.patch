@@ -1,0 +1,38 @@
+diff --git a/src/main/resources/assets/pocketdoor/blockstates/desk.json b/src/main/resources/assets/pocketdoor/blockstates/desk.json
+index 291e8a5..9936a86 100644
+--- a/src/main/resources/assets/pocketdoor/blockstates/desk.json
++++ b/src/main/resources/assets/pocketdoor/blockstates/desk.json
+@@ -9,11 +9,11 @@
+     },
+     "facing=east": {
+       "model": "pocketdoor:block/desk",
+-      "y": 90
++      "y": 270
+     },
+     "facing=west": {
+       "model": "pocketdoor:block/desk",
+-      "y": 270
++      "y": 90
+     }
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/main/resources/assets/pocketdoor/blockstates/desk_corrected.json b/src/main/resources/assets/pocketdoor/blockstates/desk_corrected.json
+index 3b973b3..9936a86 100644
+--- a/src/main/resources/assets/pocketdoor/blockstates/desk_corrected.json
++++ b/src/main/resources/assets/pocketdoor/blockstates/desk_corrected.json
+@@ -9,11 +9,11 @@
+     },
+     "facing=east": {
+       "model": "pocketdoor:block/desk",
+-      "y": 90
++      "y": 270
+     },
+     "facing=west": {
+       "model": "pocketdoor:block/desk",
+-      "y": 270
++      "y": 90
+     }
+   }
+ }

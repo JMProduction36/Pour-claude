@@ -46,6 +46,10 @@ public final class PocketOfficeGenerator {
      */
     private static final BlockPos CHAIR_POS = new BlockPos(8, FLOOR_Y + 1, 5);
     private static final Direction CHAIR_FACING = Direction.NORTH;
+    /** Centre du bureau de trois blocs et orientation depuis l'agencement 3 (retourné de 180° : l'ancien FACING était SOUTH). */
+    private static final BlockPos DESK_CENTER = new BlockPos(8, 65, 6);
+    private static final Direction DESK_FACING = Direction.NORTH;
+    private static final Direction LEGACY_DESK_FACING = Direction.SOUTH;
     /** Ancien emplacement (agencement 1), au sud du bureau. */
     private static final BlockPos LEGACY_CHAIR_POS = new BlockPos(8, FLOOR_Y + 1, 7);
 
@@ -189,12 +193,12 @@ public final class PocketOfficeGenerator {
         // Existing typewriter coordinates establish the desk centre at (8, 66, 6).
         // The three desk blocks run east-west; the chair is directly north of centre,
         // on the other side of the desk from the door.
-        BlockPos center = new BlockPos(8, 65, 6);
-        var desk = ModBlocks.DESK.defaultBlockState().setValue(DeskBlock.FACING, Direction.SOUTH);
+        BlockPos center = DESK_CENTER;
+        var desk = ModBlocks.DESK.defaultBlockState().setValue(DeskBlock.FACING, DESK_FACING);
         place(level, center, desk);
         Direction axis = Direction.EAST;
-        place(level, center.relative(axis.getOpposite()), ModBlocks.DESK_PART.defaultBlockState().setValue(DeskPartBlock.FACING, Direction.SOUTH).setValue(DeskPartBlock.POSITIVE, false));
-        place(level, center.relative(axis), ModBlocks.DESK_PART.defaultBlockState().setValue(DeskPartBlock.FACING, Direction.SOUTH).setValue(DeskPartBlock.POSITIVE, true));
+        place(level, center.relative(axis.getOpposite()), ModBlocks.DESK_PART.defaultBlockState().setValue(DeskPartBlock.FACING, DESK_FACING).setValue(DeskPartBlock.POSITIVE, false));
+        place(level, center.relative(axis), ModBlocks.DESK_PART.defaultBlockState().setValue(DeskPartBlock.FACING, DESK_FACING).setValue(DeskPartBlock.POSITIVE, true));
         place(level, CHAIR_POS, chairState());
         place(level, new BlockPos(8, 66, 6),
                 ModBlocks.TYPEWRITER.defaultBlockState().setValue(TypewriterBlock.FACING, Direction.NORTH));
@@ -212,13 +216,36 @@ public final class PocketOfficeGenerator {
         if (data.getLayout() >= PocketOfficeSavedData.CURRENT_LAYOUT) {
             return;
         }
-        if (level.getBlockState(LEGACY_CHAIR_POS).is(ModBlocks.POCKET_CHAIR)
+        if (data.getLayout() < 2
+                && level.getBlockState(LEGACY_CHAIR_POS).is(ModBlocks.POCKET_CHAIR)
                 && level.getBlockState(CHAIR_POS).isAir()) {
             place(level, LEGACY_CHAIR_POS, Blocks.AIR.defaultBlockState());
             place(level, CHAIR_POS, chairState());
             PocketDoorMod.LOGGER.info("Moved the Pocket Office chair to the other side of the desk.");
         }
+        if (data.getLayout() < 3) {
+            rotateDeskLayout(level);
+        }
         data.setLayout(PocketOfficeSavedData.CURRENT_LAYOUT);
+    }
+
+    /**
+     * Agencement 3 : retourne le bureau de 180°. Seul l'état (FACING) change ; le bloc reste le même,
+     * donc son inventaire est conservé. Un bureau déplacé ou remplacé par le joueur n'est pas touché.
+     */
+    private static void rotateDeskLayout(ServerLevel level) {
+        BlockState desk = level.getBlockState(DESK_CENTER);
+        if (desk.is(ModBlocks.DESK) && desk.getValue(DeskBlock.FACING) == LEGACY_DESK_FACING) {
+            level.setBlock(DESK_CENTER, desk.setValue(DeskBlock.FACING, DESK_FACING), 3);
+        }
+        for (Direction side : new Direction[]{Direction.EAST, Direction.WEST}) {
+            BlockPos partPos = DESK_CENTER.relative(side);
+            BlockState part = level.getBlockState(partPos);
+            if (part.is(ModBlocks.DESK_PART) && part.getValue(DeskPartBlock.FACING) == LEGACY_DESK_FACING) {
+                level.setBlock(partPos, part.setValue(DeskPartBlock.FACING, DESK_FACING), 3);
+            }
+        }
+        PocketDoorMod.LOGGER.info("Rotated the Pocket Office desk by 180 degrees.");
     }
 
     private static void generateWallDecorations(ServerLevel level) {

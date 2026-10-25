@@ -32,6 +32,10 @@ public class FurnitureBlockEntity extends BlockEntity {
 
     public FurnitureBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.FURNITURE, pos, state);
+        // Sans ces écouteurs, un objet déposé dans le bureau ne marquait jamais le chunk comme modifié :
+        // l'inventaire pouvait être perdu à la fermeture du monde.
+        left.addListener(container -> setChanged());
+        right.addListener(container -> setChanged());
     }
 
     public SimpleContainer getLeft() {

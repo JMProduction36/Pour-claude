@@ -33,17 +33,21 @@ public final class DeskPartBlock extends Block {
     @Override public RenderShape getRenderShape(BlockState state) { return RenderShape.INVISIBLE; }
     @Override public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext c) { return SHAPE; }
     @Override public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext c) { return SHAPE; }
+    @Override public VoxelShape getInteractionShape(BlockState state, BlockGetter level, BlockPos pos) { return SHAPE; }
 
+    /** Les ancres sont placées de part et d'autre du bloc principal, sur l'axe perpendiculaire à FACING. */
     public static BlockPos masterPos(BlockPos pos, BlockState state) {
-        Direction axis = state.getValue(FACING).getAxis() == Direction.Axis.X ? Direction.WEST : Direction.NORTH;
-        if (state.getValue(POSITIVE)) axis = axis.getOpposite();
-        return pos.relative(axis);
+        Direction right = state.getValue(FACING).getClockWise();
+        return pos.relative(state.getValue(POSITIVE) ? right.getOpposite() : right);
     }
 
+    /** Clic droit sur une ancre = clic sur le bureau : même inventaire que le bloc principal. */
     @Override public InteractionResult use(BlockState state, Level level, BlockPos pos, Player player, InteractionHand hand, BlockHitResult hit) {
+        if (level.isClientSide) return InteractionResult.SUCCESS;
         BlockPos master = masterPos(pos, state);
-        BlockState masterState = level.getBlockState(master);
-        return masterState.is(ModBlocks.DESK) ? ModBlocks.DESK.use(masterState, level, master, player, hand, hit) : InteractionResult.PASS;
+        if (!(level.getBlockEntity(master) instanceof FurnitureBlockEntity)) return InteractionResult.PASS;
+        DeskBlock.openInventory((net.minecraft.server.level.ServerPlayer) player, level, master);
+        return InteractionResult.CONSUME;
     }
 
     @Override public void playerDestroy(Level level, Player player, BlockPos pos, BlockState state, net.minecraft.world.level.block.entity.BlockEntity be, net.minecraft.world.item.ItemStack tool) {

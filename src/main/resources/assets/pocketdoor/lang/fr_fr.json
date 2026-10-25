@@ -4,5 +4,6 @@
   "key.pocketdoor.remove_portal": "Faire disparaître la Porte de Poche",
   "itemGroup.pocketdoor.items": "Pocket Door",
   "block.pocketdoor.pocket_chair": "Chaise du bureau de poche",
-  "block.pocketdoor.desk": "Bureau de poche"
+  "block.pocketdoor.desk": "Bureau de poche",
+  "container.pocketdoor.desk_center": "Bureau de poche"
 }

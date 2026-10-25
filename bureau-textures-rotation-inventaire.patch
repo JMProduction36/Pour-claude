@@ -1,0 +1,441 @@
+diff --git a/scripts/convert_desk_bbmodel.py b/scripts/convert_desk_bbmodel.py
+index c1c1a76..6572d1e 100644
+--- a/scripts/convert_desk_bbmodel.py
++++ b/scripts/convert_desk_bbmodel.py
+@@ -10,8 +10,11 @@ source = ROOT / 'blockbench' / 'Bureau.bbmodel'
+ out = ROOT / 'src/main/resources/assets/pocketdoor/models/block/desk.json'
+ 
+ data = json.loads(source.read_text(encoding='utf-8'))
+-textures = {str(t['id']): Path(t['name']).stem for t in data.get('textures', []) if t.get('name')}
+-texture_scale = {str(t['id']): (16.0 / float(t.get('uv_width', 16)), 16.0 / float(t.get('uv_height', 16))) for t in data.get('textures', []) if t.get('name')}
++# Blockbench référence les textures par leur INDEX dans la liste "textures" (et non par leur "id").
++# Les ids peuvent avoir des trous (ici 0, 1, 3) : un mappage par id envoie les faces de text3 sur text1.
++tex_list = [t for t in data.get('textures', []) if t.get('name')]
++textures = {i: Path(t['name']).stem for i, t in enumerate(tex_list)}
++texture_scale = {i: (16.0 / float(t.get('uv_width', 16)), 16.0 / float(t.get('uv_height', 16))) for i, t in enumerate(tex_list)}
+ # The Blockbench model is centered at x=0 and z=0. Shift to Minecraft's
+ # three-block span [-16,32] x [0,16] z, with the center block at x=0..16.
+ shift = (8.0, 0.0, 8.0)
+@@ -27,12 +30,15 @@ for e in data.get('elements', []):
+         f = e.get('faces', {}).get(face)
+         if not f:
+             continue
+-        tex = textures.get(str(f.get('texture', 0)), 'text1')
+-        ef[face] = {'texture': '#' + tex}
+-        # Preserve Blockbench UVs when they are simple numeric rectangles.
++        index = f.get('texture')
++        # Face sans texture (null) : Blockbench ne la dessine pas, on ne l'exporte pas non plus.
++        if index is None or int(index) not in textures:
++            continue
++        index = int(index)
++        ef[face] = {'texture': '#' + textures[index]}
+         uv = f.get('uv')
+         if isinstance(uv, list) and len(uv) == 4:
+-            sx, sy = texture_scale.get(str(f.get('texture', 0)), (1.0, 1.0))
++            sx, sy = texture_scale[index]
+             ef[face]['uv'] = [round(float(uv[0]) * sx, 4), round(float(uv[1]) * sy, 4), round(float(uv[2]) * sx, 4), round(float(uv[3]) * sy, 4)]
+     if ef:
+         elements.append({'from': frm, 'to': to, 'faces': ef})
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/block/DeskBlock.java b/src/main/java/fr/jmproduction/pocketdoor/block/DeskBlock.java
+index 1d60f5f..861ea3b 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/block/DeskBlock.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/block/DeskBlock.java
+@@ -2,42 +2,163 @@ package fr.jmproduction.pocketdoor.block;
+ 
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.core.Direction;
++import net.minecraft.network.chat.Component;
++import net.minecraft.server.level.ServerPlayer;
++import net.minecraft.world.Containers;
++import net.minecraft.world.InteractionHand;
++import net.minecraft.world.InteractionResult;
++import net.minecraft.world.SimpleMenuProvider;
++import net.minecraft.world.entity.LivingEntity;
++import net.minecraft.world.entity.player.Player;
++import net.minecraft.world.inventory.ChestMenu;
++import net.minecraft.world.item.ItemStack;
+ import net.minecraft.world.item.context.BlockPlaceContext;
+ import net.minecraft.world.level.BlockGetter;
+ import net.minecraft.world.level.Level;
+ import net.minecraft.world.level.block.Block;
++import net.minecraft.world.level.block.Blocks;
++import net.minecraft.world.level.block.EntityBlock;
+ import net.minecraft.world.level.block.HorizontalDirectionalBlock;
+ import net.minecraft.world.level.block.Mirror;
+-import net.minecraft.world.level.block.Rotation;
+ import net.minecraft.world.level.block.RenderShape;
++import net.minecraft.world.level.block.Rotation;
++import net.minecraft.world.level.block.entity.BlockEntity;
+ import net.minecraft.world.level.block.state.BlockState;
+-import net.minecraft.world.level.material.Fluids;
+ import net.minecraft.world.level.block.state.StateDefinition;
++import net.minecraft.world.level.material.Fluids;
++import net.minecraft.world.phys.BlockHitResult;
+ import net.minecraft.world.phys.shapes.CollisionContext;
+-import net.minecraft.world.phys.shapes.Shapes;
+ import net.minecraft.world.phys.shapes.VoxelShape;
+ 
+-/** Vanilla-model master block for the centered, three-block-wide desk. */
+-public final class DeskBlock extends HorizontalDirectionalBlock {
+-    private static final VoxelShape SHAPE = Shapes.or(box(-16, 0, 0, 32, 16, 16));
+-    public DeskBlock(Properties properties) { super(properties.noOcclusion()); registerDefaultState(defaultBlockState().setValue(FACING, Direction.SOUTH)); }
+-    @Override protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> b) { b.add(FACING); }
+-    @Override public RenderShape getRenderShape(BlockState state) { return RenderShape.MODEL; }
+-    @Override public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext c) { return SHAPE; }
+-    @Override public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext c) { return SHAPE; }
+-    @Override public BlockState getStateForPlacement(BlockPlaceContext c) {
+-        if (!c.getLevel().getBlockState(c.getClickedPos()).canBeReplaced(Fluids.EMPTY)) return null;
+-        return defaultBlockState().setValue(FACING, c.getHorizontalDirection().getOpposite()); }
+-    @Override public BlockState rotate(BlockState s, Rotation r) { return s.setValue(FACING, r.rotate(s.getValue(FACING))); }
+-    @Override public BlockState mirror(BlockState s, Mirror m) { return s.rotate(m.getRotation(s.getValue(FACING))); }
+-    @Override public void onRemove(BlockState state, Level level, BlockPos pos, BlockState next, boolean moved) {
++/**
++ * Bloc principal du bureau de trois blocs de large. Le modèle s'étend sur trois blocs ; ce bloc et ses deux
++ * ancres invisibles ({@link DeskPartBlock}) ont chacun une hitbox 1x1x1. Un clic droit sur N'IMPORTE quelle
++ * partie du bureau (centre ou côtés) ouvre le même inventaire de 54 emplacements, celui de ce bloc.
++ */
++public final class DeskBlock extends HorizontalDirectionalBlock implements EntityBlock {
++
++    private static final VoxelShape SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 16.0D, 16.0D);
++
++    public DeskBlock(Properties properties) {
++        super(properties.noOcclusion());
++        registerDefaultState(defaultBlockState().setValue(FACING, Direction.SOUTH));
++    }
++
++    @Override
++    protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> b) {
++        b.add(FACING);
++    }
++
++    @Override
++    public RenderShape getRenderShape(BlockState state) {
++        return RenderShape.MODEL;
++    }
++
++    @Override
++    public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext c) {
++        return SHAPE;
++    }
++
++    @Override
++    public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext c) {
++        return SHAPE;
++    }
++
++    @Override
++    public VoxelShape getOcclusionShape(BlockState state, BlockGetter level, BlockPos pos) {
++        return SHAPE;
++    }
++
++    @Override
++    public VoxelShape getInteractionShape(BlockState state, BlockGetter level, BlockPos pos) {
++        return SHAPE;
++    }
++
++    @Override
++    public BlockState getStateForPlacement(BlockPlaceContext context) {
++        Level level = context.getLevel();
++        BlockPos pos = context.getClickedPos();
++        if (!level.getBlockState(pos).canBeReplaced(Fluids.EMPTY)) {
++            return null;
++        }
++
++        Direction facing = context.getPlayer() == null
++                ? Direction.SOUTH
++                : context.getHorizontalDirection().getOpposite();
++
++        // Le bureau occupe trois blocs perpendiculairement à FACING : les deux ancres doivent être libres.
++        Direction right = facing.getClockWise();
++        if (!level.getBlockState(pos.relative(right)).canBeReplaced(Fluids.EMPTY)
++                || !level.getBlockState(pos.relative(right.getOpposite())).canBeReplaced(Fluids.EMPTY)) {
++            return null;
++        }
++
++        return defaultBlockState().setValue(FACING, facing);
++    }
++
++    /** Crée les deux ancres invisibles d'un bureau posé par un joueur. */
++    @Override
++    public void setPlacedBy(Level level, BlockPos pos, BlockState state, LivingEntity placer, ItemStack stack) {
++        super.setPlacedBy(level, pos, state, placer, stack);
++        if (level.isClientSide) return;
++        Direction right = state.getValue(FACING).getClockWise();
++        level.setBlock(pos.relative(right), ModBlocks.DESK_PART.defaultBlockState()
++                .setValue(DeskPartBlock.FACING, state.getValue(FACING))
++                .setValue(DeskPartBlock.POSITIVE, true), 3);
++        level.setBlock(pos.relative(right.getOpposite()), ModBlocks.DESK_PART.defaultBlockState()
++                .setValue(DeskPartBlock.FACING, state.getValue(FACING))
++                .setValue(DeskPartBlock.POSITIVE, false), 3);
++    }
++
++    @Override
++    public BlockState rotate(BlockState s, Rotation r) {
++        return s.setValue(FACING, r.rotate(s.getValue(FACING)));
++    }
++
++    @Override
++    public BlockState mirror(BlockState s, Mirror m) {
++        return s.rotate(m.getRotation(s.getValue(FACING)));
++    }
++
++    @Override
++    public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
++        return new FurnitureBlockEntity(pos, state);
++    }
++
++    @Override
++    public InteractionResult use(BlockState state, Level level, BlockPos pos,
++                                 Player player, InteractionHand hand, BlockHitResult hit) {
++        if (level.isClientSide) {
++            return InteractionResult.SUCCESS;
++        }
++        openInventory((ServerPlayer) player, level, pos);
++        return InteractionResult.CONSUME;
++    }
++
++    @Override
++    public void onRemove(BlockState state, Level level, BlockPos pos, BlockState next, boolean moved) {
+         if (!state.is(next.getBlock())) {
+-            Direction axis = state.getValue(FACING).getAxis() == Direction.Axis.X ? Direction.EAST : Direction.SOUTH;
+-            for (boolean positive : new boolean[]{false, true}) {
+-                BlockPos side = pos.relative(positive ? axis : axis.getOpposite());
+-                if (level.getBlockState(side).is(ModBlocks.DESK_PART)) level.removeBlock(side, false);
++            if (level.getBlockEntity(pos) instanceof FurnitureBlockEntity furniture) {
++                Containers.dropContents(level, pos, furniture.getCompound());
++            }
++            Direction right = state.getValue(FACING).getClockWise();
++            for (Direction side : new Direction[]{right.getOpposite(), right}) {
++                BlockPos anchor = pos.relative(side);
++                if (level.getBlockState(anchor).is(ModBlocks.DESK_PART)) {
++                    level.setBlock(anchor, Blocks.AIR.defaultBlockState(), 3);
++                }
+             }
+         }
+         super.onRemove(state, level, pos, next, moved);
+     }
++
++    /** Ouvre l'inventaire (coffre double de 6 rangées) du bureau dont le bloc principal est en {@code pos}. */
++    public static void openInventory(ServerPlayer player, Level level, BlockPos pos) {
++        if (!(level.getBlockEntity(pos) instanceof FurnitureBlockEntity furniture)) {
++            return;
++        }
++        player.openMenu(new SimpleMenuProvider(
++                (containerId, playerInv, p) -> ChestMenu.sixRows(containerId, playerInv, furniture.getCompound()),
++                Component.translatable("container.pocketdoor.desk_center")));
++    }
+ }
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/block/DeskPartBlock.java b/src/main/java/fr/jmproduction/pocketdoor/block/DeskPartBlock.java
+index a4c0c24..62b3707 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/block/DeskPartBlock.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/block/DeskPartBlock.java
+@@ -33,17 +33,21 @@ public final class DeskPartBlock extends Block {
+     @Override public RenderShape getRenderShape(BlockState state) { return RenderShape.INVISIBLE; }
+     @Override public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext c) { return SHAPE; }
+     @Override public VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext c) { return SHAPE; }
++    @Override public VoxelShape getInteractionShape(BlockState state, BlockGetter level, BlockPos pos) { return SHAPE; }
+ 
++    /** Les ancres sont placées de part et d'autre du bloc principal, sur l'axe perpendiculaire à FACING. */
+     public static BlockPos masterPos(BlockPos pos, BlockState state) {
+-        Direction axis = state.getValue(FACING).getAxis() == Direction.Axis.X ? Direction.WEST : Direction.NORTH;
+-        if (state.getValue(POSITIVE)) axis = axis.getOpposite();
+-        return pos.relative(axis);
++        Direction right = state.getValue(FACING).getClockWise();
++        return pos.relative(state.getValue(POSITIVE) ? right.getOpposite() : right);
+     }
+ 
++    /** Clic droit sur une ancre = clic sur le bureau : même inventaire que le bloc principal. */
+     @Override public InteractionResult use(BlockState state, Level level, BlockPos pos, Player player, InteractionHand hand, BlockHitResult hit) {
++        if (level.isClientSide) return InteractionResult.SUCCESS;
+         BlockPos master = masterPos(pos, state);
+-        BlockState masterState = level.getBlockState(master);
+-        return masterState.is(ModBlocks.DESK) ? ModBlocks.DESK.use(masterState, level, master, player, hand, hit) : InteractionResult.PASS;
++        if (!(level.getBlockEntity(master) instanceof FurnitureBlockEntity)) return InteractionResult.PASS;
++        DeskBlock.openInventory((net.minecraft.server.level.ServerPlayer) player, level, master);
++        return InteractionResult.CONSUME;
+     }
+ 
+     @Override public void playerDestroy(Level level, Player player, BlockPos pos, BlockState state, net.minecraft.world.level.block.entity.BlockEntity be, net.minecraft.world.item.ItemStack tool) {
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/block/FurnitureBlockEntity.java b/src/main/java/fr/jmproduction/pocketdoor/block/FurnitureBlockEntity.java
+index af91e26..97344f5 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/block/FurnitureBlockEntity.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/block/FurnitureBlockEntity.java
+@@ -32,6 +32,10 @@ public class FurnitureBlockEntity extends BlockEntity {
+ 
+     public FurnitureBlockEntity(BlockPos pos, BlockState state) {
+         super(ModBlockEntities.FURNITURE, pos, state);
++        // Sans ces écouteurs, un objet déposé dans le bureau ne marquait jamais le chunk comme modifié :
++        // l'inventaire pouvait être perdu à la fermeture du monde.
++        left.addListener(container -> setChanged());
++        right.addListener(container -> setChanged());
+     }
+ 
+     public SimpleContainer getLeft() {
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/data/PocketOfficeSavedData.java b/src/main/java/fr/jmproduction/pocketdoor/data/PocketOfficeSavedData.java
+index 1a43a44..8eaa8ac 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/data/PocketOfficeSavedData.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/data/PocketOfficeSavedData.java
+@@ -11,9 +11,10 @@ public class PocketOfficeSavedData extends SavedData {
+ 
+     /**
+      * Version de l'agencement du mobilier.
+-     * 1 = chaise au sud du bureau (anciens mondes) ; 2 = chaise au nord, de l'autre côté du bureau.
++     * 1 = chaise au sud du bureau (anciens mondes) ; 2 = chaise au nord, de l'autre côté du bureau ;
++     * 3 = bureau retourné de 180° (FACING = NORTH).
+      */
+-    public static final int CURRENT_LAYOUT = 2;
++    public static final int CURRENT_LAYOUT = 3;
+ 
+     private boolean generated;
+     private int layout;
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java b/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java
+index 4c370d1..b739994 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java
+@@ -46,6 +46,10 @@ public final class PocketOfficeGenerator {
+      */
+     private static final BlockPos CHAIR_POS = new BlockPos(8, FLOOR_Y + 1, 5);
+     private static final Direction CHAIR_FACING = Direction.NORTH;
++    /** Centre du bureau de trois blocs et orientation depuis l'agencement 3 (retourné de 180° : l'ancien FACING était SOUTH). */
++    private static final BlockPos DESK_CENTER = new BlockPos(8, 65, 6);
++    private static final Direction DESK_FACING = Direction.NORTH;
++    private static final Direction LEGACY_DESK_FACING = Direction.SOUTH;
+     /** Ancien emplacement (agencement 1), au sud du bureau. */
+     private static final BlockPos LEGACY_CHAIR_POS = new BlockPos(8, FLOOR_Y + 1, 7);
+ 
+@@ -189,12 +193,12 @@ public final class PocketOfficeGenerator {
+         // Existing typewriter coordinates establish the desk centre at (8, 66, 6).
+         // The three desk blocks run east-west; the chair is directly north of centre,
+         // on the other side of the desk from the door.
+-        BlockPos center = new BlockPos(8, 65, 6);
+-        var desk = ModBlocks.DESK.defaultBlockState().setValue(DeskBlock.FACING, Direction.SOUTH);
++        BlockPos center = DESK_CENTER;
++        var desk = ModBlocks.DESK.defaultBlockState().setValue(DeskBlock.FACING, DESK_FACING);
+         place(level, center, desk);
+         Direction axis = Direction.EAST;
+-        place(level, center.relative(axis.getOpposite()), ModBlocks.DESK_PART.defaultBlockState().setValue(DeskPartBlock.FACING, Direction.SOUTH).setValue(DeskPartBlock.POSITIVE, false));
+-        place(level, center.relative(axis), ModBlocks.DESK_PART.defaultBlockState().setValue(DeskPartBlock.FACING, Direction.SOUTH).setValue(DeskPartBlock.POSITIVE, true));
++        place(level, center.relative(axis.getOpposite()), ModBlocks.DESK_PART.defaultBlockState().setValue(DeskPartBlock.FACING, DESK_FACING).setValue(DeskPartBlock.POSITIVE, false));
++        place(level, center.relative(axis), ModBlocks.DESK_PART.defaultBlockState().setValue(DeskPartBlock.FACING, DESK_FACING).setValue(DeskPartBlock.POSITIVE, true));
+         place(level, CHAIR_POS, chairState());
+         place(level, new BlockPos(8, 66, 6),
+                 ModBlocks.TYPEWRITER.defaultBlockState().setValue(TypewriterBlock.FACING, Direction.NORTH));
+@@ -212,15 +216,38 @@ public final class PocketOfficeGenerator {
+         if (data.getLayout() >= PocketOfficeSavedData.CURRENT_LAYOUT) {
+             return;
+         }
+-        if (level.getBlockState(LEGACY_CHAIR_POS).is(ModBlocks.POCKET_CHAIR)
++        if (data.getLayout() < 2
++                && level.getBlockState(LEGACY_CHAIR_POS).is(ModBlocks.POCKET_CHAIR)
+                 && level.getBlockState(CHAIR_POS).isAir()) {
+             place(level, LEGACY_CHAIR_POS, Blocks.AIR.defaultBlockState());
+             place(level, CHAIR_POS, chairState());
+             PocketDoorMod.LOGGER.info("Moved the Pocket Office chair to the other side of the desk.");
+         }
++        if (data.getLayout() < 3) {
++            rotateDeskLayout(level);
++        }
+         data.setLayout(PocketOfficeSavedData.CURRENT_LAYOUT);
+     }
+ 
++    /**
++     * Agencement 3 : retourne le bureau de 180°. Seul l'état (FACING) change ; le bloc reste le même,
++     * donc son inventaire est conservé. Un bureau déplacé ou remplacé par le joueur n'est pas touché.
++     */
++    private static void rotateDeskLayout(ServerLevel level) {
++        BlockState desk = level.getBlockState(DESK_CENTER);
++        if (desk.is(ModBlocks.DESK) && desk.getValue(DeskBlock.FACING) == LEGACY_DESK_FACING) {
++            level.setBlock(DESK_CENTER, desk.setValue(DeskBlock.FACING, DESK_FACING), 3);
++        }
++        for (Direction side : new Direction[]{Direction.EAST, Direction.WEST}) {
++            BlockPos partPos = DESK_CENTER.relative(side);
++            BlockState part = level.getBlockState(partPos);
++            if (part.is(ModBlocks.DESK_PART) && part.getValue(DeskPartBlock.FACING) == LEGACY_DESK_FACING) {
++                level.setBlock(partPos, part.setValue(DeskPartBlock.FACING, DESK_FACING), 3);
++            }
++        }
++        PocketDoorMod.LOGGER.info("Rotated the Pocket Office desk by 180 degrees.");
++    }
++
+     private static void generateWallDecorations(ServerLevel level) {
+         RandomSource random = RandomSource.create(level.getSeed() ^ 0x504F434B45544F46L);
+ 
+diff --git a/src/main/resources/assets/pocketdoor/lang/en_us.json b/src/main/resources/assets/pocketdoor/lang/en_us.json
+index 5bd8502..82abb28 100644
+--- a/src/main/resources/assets/pocketdoor/lang/en_us.json
++++ b/src/main/resources/assets/pocketdoor/lang/en_us.json
+@@ -4,5 +4,6 @@
+   "key.pocketdoor.remove_portal": "Remove Pocket Door",
+   "itemGroup.pocketdoor.items": "Pocket Door",
+   "block.pocketdoor.pocket_chair": "Pocket Office Chair",
+-  "block.pocketdoor.desk": "Pocket Office Desk"
++  "block.pocketdoor.desk": "Pocket Office Desk",
++  "container.pocketdoor.desk_center": "Pocket Office Desk"
+ }
+diff --git a/src/main/resources/assets/pocketdoor/lang/fr_fr.json b/src/main/resources/assets/pocketdoor/lang/fr_fr.json
+index 7825b62..e19c55c 100644
+--- a/src/main/resources/assets/pocketdoor/lang/fr_fr.json
++++ b/src/main/resources/assets/pocketdoor/lang/fr_fr.json
+@@ -4,5 +4,6 @@
+   "key.pocketdoor.remove_portal": "Faire disparaître la Porte de Poche",
+   "itemGroup.pocketdoor.items": "Pocket Door",
+   "block.pocketdoor.pocket_chair": "Chaise du bureau de poche",
+-  "block.pocketdoor.desk": "Bureau de poche"
++  "block.pocketdoor.desk": "Bureau de poche",
++  "container.pocketdoor.desk_center": "Bureau de poche"
+ }
+diff --git a/src/main/resources/assets/pocketdoor/models/block/desk.json b/src/main/resources/assets/pocketdoor/models/block/desk.json
+index 2b8a549..4aaff6b 100644
+--- a/src/main/resources/assets/pocketdoor/models/block/desk.json
++++ b/src/main/resources/assets/pocketdoor/models/block/desk.json
+@@ -1 +1 @@
+-{"textures":{"text1":"pocketdoor:block/bureau/text1","text2":"pocketdoor:block/bureau/text2","text3":"pocketdoor:block/bureau/text3"},"elements":[{"from":[18.9,0.0,0.0],"to":[31.9,0.9,16.0],"faces":{"down":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]}}},{"from":[-4.0,0.9,1.9],"to":[20.0,14.9,5.9],"faces":{"down":{"texture":"#text1","uv":[0.0,0.0,16.0,4.0]},"up":{"texture":"#text1","uv":[0.0,12.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text1","uv":[12.0,2.0,16.0,16.0]},"east":{"texture":"#text1","uv":[0.0,2.0,4.0,16.0]}}},{"from":[19.9,0.9,1.0],"to":[30.9,14.9,15.0],"faces":{"down":{"texture":"#text1","uv":[1.0,1.0,12.0,15.0]},"up":{"texture":"#text1","uv":[1.0,1.0,12.0,15.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[-15.9,0.0,0.0],"to":[-2.9,0.9,16.0],"faces":{"down":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]}}},{"from":[-3.1,0.0,1.0],"to":[18.9,0.9,6.0],"faces":{"down":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]}}},{"from":[-3.1,3.9,7.0],"to":[18.9,4.9,8.0],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[-16.0,14.9,0.0],"to":[32.0,15.9,16.0],"faces":{"down":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]}}},{"from":[21.9,1.4,15.0],"to":[28.9,7.4,15.3],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[22.1,1.6,15.0],"to":[28.7,7.2,15.6],"faces":{"down":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"up":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"north":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"south":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"west":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"east":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]}}},{"from":[22.1,8.1,15.0],"to":[28.7,10.7,15.6],"faces":{"down":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"up":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"north":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"south":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"west":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"east":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]}}},{"from":[21.9,7.9,15.0],"to":[28.9,10.9,15.3],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[22.1,11.6,15.0],"to":[28.7,14.2,15.6],"faces":{"down":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"up":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"north":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"south":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"west":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"east":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]}}},{"from":[21.9,11.4,15.0],"to":[28.9,14.4,15.3],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[23.4,4.3,14.9],"to":[24.6,5.2,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[26.3,4.3,14.9],"to":[27.5,5.2,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[24.4,3.55,15.9],"to":[26.6,3.95,16.1],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[24.0,3.55,15.9],"to":[24.4,4.35,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[26.6,3.55,15.9],"to":[27.0,4.35,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[24.4,8.25,15.7],"to":[26.6,8.65,15.9],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[24.0,8.25,15.7],"to":[24.4,9.05,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[23.4,9.0,14.7],"to":[24.6,9.9,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[26.6,8.25,15.7],"to":[27.0,9.05,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[26.3,9.0,14.7],"to":[27.5,9.9,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[24.4,11.75,15.7],"to":[26.6,12.15,15.9],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[24.0,11.75,15.7],"to":[24.4,12.55,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[26.6,11.75,15.7],"to":[27.0,12.55,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[26.3,12.5,14.7],"to":[27.5,13.4,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-14.9,0.9,1.0],"to":[-3.9,14.9,15.0],"faces":{"down":{"texture":"#text1","uv":[12.0,1.0,1.0,15.0]},"up":{"texture":"#text1","uv":[12.0,1.0,1.0,15.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[-12.9,1.4,15.0],"to":[-5.9,7.4,15.3],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[-12.7,1.6,15.0],"to":[-6.1,7.2,15.6],"faces":{"down":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"up":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"north":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"south":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"west":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"east":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]}}},{"from":[-11.5,4.3,14.9],"to":[-10.3,5.2,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-11.0,3.55,15.9],"to":[-10.6,4.35,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-10.6,3.55,15.9],"to":[-8.4,3.95,16.1],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[-8.4,3.55,15.9],"to":[-8.0,4.35,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-8.6,4.3,14.9],"to":[-7.4,5.2,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-8.6,9.0,14.7],"to":[-7.4,9.9,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-8.4,8.25,15.7],"to":[-8.0,9.05,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-11.5,9.0,14.7],"to":[-10.3,9.9,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-11.0,8.25,15.7],"to":[-10.6,9.05,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-10.6,8.25,15.7],"to":[-8.4,8.65,15.9],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[-12.7,8.1,15.0],"to":[-6.1,10.7,15.6],"faces":{"down":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"up":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"north":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"south":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"west":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"east":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]}}},{"from":[-12.9,7.9,15.0],"to":[-5.9,10.9,15.3],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[-12.9,11.4,15.0],"to":[-5.9,14.4,15.3],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[-12.7,11.6,15.0],"to":[-6.1,14.2,15.6],"faces":{"down":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"up":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"north":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"south":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"west":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]},"east":{"texture":"#text1","uv":[0.0,0.0,160.0,160.0]}}},{"from":[-11.5,12.5,14.7],"to":[-10.3,13.4,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-11.0,11.75,15.7],"to":[-10.6,12.55,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-10.6,11.75,15.7],"to":[-8.4,12.15,15.9],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[-8.4,11.75,15.7],"to":[-8.0,12.55,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-8.6,12.5,14.7],"to":[-7.4,13.4,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-3.9,10.9,6.0],"to":[19.9,14.9,15.0],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text1","uv":[0.0,6.0,16.0,15.0]},"north":{"texture":"#text1","uv":[0.0,2.0,16.0,6.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text1","uv":[6.0,2.0,15.0,6.0]},"east":{"texture":"#text1","uv":[1.0,2.0,10.0,6.0]}}},{"from":[-3.3,11.6,15.0],"to":[19.3,14.2,15.6],"faces":{"down":{"texture":"#text1","uv":[0.0,98.0,160.0,160.0]},"up":{"texture":"#text1","uv":[0.0,98.0,160.0,160.0]},"north":{"texture":"#text1","uv":[0.0,98.0,160.0,160.0]},"south":{"texture":"#text1","uv":[0.0,98.0,160.0,160.0]},"west":{"texture":"#text1","uv":[0.0,98.0,160.0,160.0]},"east":{"texture":"#text1","uv":[0.0,98.0,160.0,160.0]}}},{"from":[-3.5,11.4,15.0],"to":[19.5,14.4,15.3],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[9.3,12.5,14.7],"to":[10.5,13.4,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[7.0,11.75,15.7],"to":[7.4,12.55,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[9.6,11.75,15.7],"to":[10.0,12.55,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[7.4,11.75,15.7],"to":[9.6,12.15,15.9],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[6.4,12.5,14.7],"to":[7.6,13.4,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[18.9,3.7,6.7],"to":[19.9,5.1,8.3],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-3.9,3.7,6.7],"to":[-2.9,5.1,8.3],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[23.4,12.5,14.7],"to":[24.6,13.4,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}}]}
+\ No newline at end of file
++{"textures":{"text1":"pocketdoor:block/bureau/text1","text2":"pocketdoor:block/bureau/text2","text3":"pocketdoor:block/bureau/text3"},"elements":[{"from":[18.9,0.0,0.0],"to":[31.9,0.9,16.0],"faces":{"down":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]}}},{"from":[-4.0,0.9,1.9],"to":[20.0,14.9,5.9],"faces":{"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[19.9,0.9,1.0],"to":[30.9,14.9,15.0],"faces":{"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[-15.9,0.0,0.0],"to":[-2.9,0.9,16.0],"faces":{"down":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]}}},{"from":[-3.1,0.0,1.0],"to":[18.9,0.9,6.0],"faces":{"down":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]}}},{"from":[-3.1,3.9,7.0],"to":[18.9,4.9,8.0],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[-16.0,14.9,0.0],"to":[32.0,15.9,16.0],"faces":{"down":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,7.5414,16.0,16.0]}}},{"from":[21.9,1.4,15.0],"to":[28.9,7.4,15.3],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[22.1,1.6,15.0],"to":[28.7,7.2,15.6],"faces":{"down":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]}}},{"from":[22.1,8.1,15.0],"to":[28.7,10.7,15.6],"faces":{"down":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]}}},{"from":[21.9,7.9,15.0],"to":[28.9,10.9,15.3],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[22.1,11.6,15.0],"to":[28.7,14.2,15.6],"faces":{"down":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]}}},{"from":[21.9,11.4,15.0],"to":[28.9,14.4,15.3],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[23.4,4.3,14.9],"to":[24.6,5.2,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[26.3,4.3,14.9],"to":[27.5,5.2,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[24.4,3.55,15.9],"to":[26.6,3.95,16.1],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[24.0,3.55,15.9],"to":[24.4,4.35,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[26.6,3.55,15.9],"to":[27.0,4.35,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[24.4,8.25,15.7],"to":[26.6,8.65,15.9],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[24.0,8.25,15.7],"to":[24.4,9.05,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[23.4,9.0,14.7],"to":[24.6,9.9,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[26.6,8.25,15.7],"to":[27.0,9.05,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[26.3,9.0,14.7],"to":[27.5,9.9,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[24.4,11.75,15.7],"to":[26.6,12.15,15.9],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[24.0,11.75,15.7],"to":[24.4,12.55,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[26.6,11.75,15.7],"to":[27.0,12.55,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[26.3,12.5,14.7],"to":[27.5,13.4,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-14.9,0.9,1.0],"to":[-3.9,14.9,15.0],"faces":{"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[-12.9,1.4,15.0],"to":[-5.9,7.4,15.3],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[-12.7,1.6,15.0],"to":[-6.1,7.2,15.6],"faces":{"down":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]}}},{"from":[-11.5,4.3,14.9],"to":[-10.3,5.2,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-11.0,3.55,15.9],"to":[-10.6,4.35,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-10.6,3.55,15.9],"to":[-8.4,3.95,16.1],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[-8.4,3.55,15.9],"to":[-8.0,4.35,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-8.6,4.3,14.9],"to":[-7.4,5.2,16.1],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-8.6,9.0,14.7],"to":[-7.4,9.9,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-8.4,8.25,15.7],"to":[-8.0,9.05,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-11.5,9.0,14.7],"to":[-10.3,9.9,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-11.0,8.25,15.7],"to":[-10.6,9.05,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-10.6,8.25,15.7],"to":[-8.4,8.65,15.9],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[-12.7,8.1,15.0],"to":[-6.1,10.7,15.6],"faces":{"down":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]}}},{"from":[-12.9,7.9,15.0],"to":[-5.9,10.9,15.3],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[-12.9,11.4,15.0],"to":[-5.9,14.4,15.3],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[-12.7,11.6,15.0],"to":[-6.1,14.2,15.6],"faces":{"down":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text3","uv":[0.0,0.0,16.0,16.0]}}},{"from":[-11.5,12.5,14.7],"to":[-10.3,13.4,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-11.0,11.75,15.7],"to":[-10.6,12.55,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-10.6,11.75,15.7],"to":[-8.4,12.15,15.9],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[-8.4,11.75,15.7],"to":[-8.0,12.55,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-8.6,12.5,14.7],"to":[-7.4,13.4,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-3.9,10.9,6.0],"to":[19.9,14.9,15.0],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[-3.3,11.6,15.0],"to":[19.3,14.2,15.6],"faces":{"down":{"texture":"#text3","uv":[0.0,9.8,16.0,16.0]},"up":{"texture":"#text3","uv":[0.0,9.8,16.0,16.0]},"north":{"texture":"#text3","uv":[0.0,9.8,16.0,16.0]},"south":{"texture":"#text3","uv":[0.0,9.8,16.0,16.0]},"west":{"texture":"#text3","uv":[0.0,9.8,16.0,16.0]},"east":{"texture":"#text3","uv":[0.0,9.8,16.0,16.0]}}},{"from":[-3.5,11.4,15.0],"to":[19.5,14.4,15.3],"faces":{"down":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"up":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"north":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"south":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"west":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]},"east":{"texture":"#text2","uv":[0.0,0.0,16.0,16.0]}}},{"from":[9.3,12.5,14.7],"to":[10.5,13.4,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[7.0,11.75,15.7],"to":[7.4,12.55,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[9.6,11.75,15.7],"to":[10.0,12.55,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[7.4,11.75,15.7],"to":[9.6,12.15,15.9],"faces":{"down":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"up":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"north":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"south":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"west":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]},"east":{"texture":"#text1","uv":[1.1689,0.9416,15.1202,15.0311]}}},{"from":[6.4,12.5,14.7],"to":[7.6,13.4,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[18.9,3.7,6.7],"to":[19.9,5.1,8.3],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[-3.9,3.7,6.7],"to":[-2.9,5.1,8.3],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}},{"from":[23.4,12.5,14.7],"to":[24.6,13.4,15.9],"faces":{"down":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"up":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"north":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"south":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"west":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]},"east":{"texture":"#text1","uv":[16.0,0.0,0.0,16.0]}}}]}
+\ No newline at end of file
+diff --git a/src/main/resources/assets/pocketdoor/models/item/desk.json b/src/main/resources/assets/pocketdoor/models/item/desk.json
+index 110ada9..620c205 100644
+--- a/src/main/resources/assets/pocketdoor/models/item/desk.json
++++ b/src/main/resources/assets/pocketdoor/models/item/desk.json
+@@ -1 +1,40 @@
+-{"parent":"pocketdoor:block/desk"}
++{
++  "parent": "pocketdoor:block/desk",
++  "display": {
++    "gui": {
++      "rotation": [ 30, 45, 0 ],
++      "translation": [ 0, 0, 0 ],
++      "scale": [ 0.45, 0.45, 0.45 ]
++    },
++    "ground": {
++      "rotation": [ 0, 0, 0 ],
++      "translation": [ 0, 2, 0 ],
++      "scale": [ 0.1, 0.1, 0.1 ]
++    },
++    "fixed": {
++      "rotation": [ 0, 180, 0 ],
++      "translation": [ 0, 0, 0 ],
++      "scale": [ 0.17, 0.17, 0.17 ]
++    },
++    "thirdperson_righthand": {
++      "rotation": [ 75, 45, 0 ],
++      "translation": [ 0, 2.5, 0 ],
++      "scale": [ 0.125, 0.125, 0.125 ]
++    },
++    "thirdperson_lefthand": {
++      "rotation": [ 75, 45, 0 ],
++      "translation": [ 0, 2.5, 0 ],
++      "scale": [ 0.125, 0.125, 0.125 ]
++    },
++    "firstperson_righthand": {
++      "rotation": [ 0, 45, 0 ],
++      "translation": [ 0, 0, 0 ],
++      "scale": [ 0.14, 0.14, 0.14 ]
++    },
++    "firstperson_lefthand": {
++      "rotation": [ 0, 45, 0 ],
++      "translation": [ 0, 0, 0 ],
++      "scale": [ 0.14, 0.14, 0.14 ]
++    }
++  }
++}
