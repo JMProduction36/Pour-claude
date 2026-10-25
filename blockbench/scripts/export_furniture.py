@@ -83,15 +83,22 @@ def export(model_path, output_path, texture_source_dir, texture_output_dir):
     data = json.loads(model_path.read_text(encoding="utf-8"))
     textures = data["textures"]
     names = []
-    lookup = {}
+    name_lookup = {}
+    # Espace UV de chaque texture : Blockbench stocke les UV en pixels de l'espace
+    # `uv_width` x `uv_height` de la texture (résolution du projet à défaut).
+    resolution = data.get("resolution") or {}
+    default_uv = (resolution.get("width") or 16, resolution.get("height") or 16)
+    uv_sizes = []
     texture_output_dir.mkdir(parents=True, exist_ok=True)
 
     for index, texture in enumerate(textures):
         name = Path(texture.get("name") or f"texture_{index}.png").name
         names.append(name)
-        lookup[str(index)] = index
-        lookup[texture.get("id", "")] = index
-        lookup[texture.get("name", "")] = index
+        name_lookup[texture.get("name", "")] = index
+        uv_sizes.append((
+            texture.get("uv_width") or default_uv[0],
+            texture.get("uv_height") or default_uv[1],
+        ))
         source = texture.get("source", "")
         destination = texture_output_dir / name
         if source.startswith("data:"):
@@ -121,9 +128,18 @@ def export(model_path, output_path, texture_source_dir, texture_output_dir):
         for _, vertices, face in element_faces:
             if not face or face.get("texture") is None:
                 continue
-            texture_index = lookup.get(str(face.get("texture")))
-            if texture_index is None:
+            # `face.texture` est l'INDEX de la texture dans la liste `textures`.
+            # Ne surtout pas le confondre avec le champ `id` : les deux numérotations
+            # peuvent différer (ex. Chaise.bbmodel : ids 2/0/3 pour les index 0/1/2) et
+            # mélangeaient alors les faces de `1.png` avec `texture.png`.
+            texture_ref = face.get("texture")
+            if isinstance(texture_ref, str) and not texture_ref.isdigit():
+                texture_index = name_lookup.get(texture_ref)
+            else:
+                texture_index = int(texture_ref)
+            if texture_index is None or not 0 <= texture_index < len(textures):
                 continue
+            uv_width, uv_height = uv_sizes[texture_index]
             if vertices is None:
                 vertices = [element.get("vertices", {}).get(key) for key in face.get("vertices", [])]
             if any(vertex is None for vertex in vertices) or len(vertices) < 3:
@@ -132,11 +148,18 @@ def export(model_path, output_path, texture_source_dir, texture_output_dir):
             uv = face.get("uv", [])
             uv_map = face.get("vertices", {})
             uv_values = []
-            for position, vertex_name in enumerate(face.get("vertices", []) if isinstance(uv_map, dict) else range(len(transformed))):
-                coordinates = uv_map.get(vertex_name) if isinstance(uv_map, dict) else None
-                if coordinates is None and isinstance(uv, list) and len(uv) >= 4:
-                    coordinates = [uv[0] if position in (0, 3) else uv[2], uv[1] if position in (0, 1) else uv[3]]
-                uv_values.append(((coordinates or [0, 0])[0] / 16, (coordinates or [0, 0])[1] / 16))
+            if isinstance(uv, dict):
+                # Élément `mesh` : `uv` est un dictionnaire {id_sommet: [u, v]} et
+                # `vertices` donne l'ordre des sommets de la face.
+                for vertex_name in face.get("vertices", []):
+                    u, v = uv.get(vertex_name, [0, 0])
+                    uv_values.append((u / uv_width, v / uv_height))
+            else:
+                for position, vertex_name in enumerate(face.get("vertices", []) if isinstance(uv_map, dict) else range(len(transformed))):
+                    coordinates = uv_map.get(vertex_name) if isinstance(uv_map, dict) else None
+                    if coordinates is None and isinstance(uv, list) and len(uv) >= 4:
+                        coordinates = [uv[0] if position in (0, 3) else uv[2], uv[1] if position in (0, 1) else uv[3]]
+                    uv_values.append(((coordinates or [0, 0])[0] / uv_width, (coordinates or [0, 0])[1] / uv_height))
             if len(uv_values) != len(transformed):
                 uv_values = [(0, 0)] * len(transformed)
             normal = normalize(cross(

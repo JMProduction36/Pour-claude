@@ -1,0 +1,616 @@
+diff --git a/blockbench/scripts/export_furniture.py b/blockbench/scripts/export_furniture.py
+index 1c107ea..9dc186a 100644
+--- a/blockbench/scripts/export_furniture.py
++++ b/blockbench/scripts/export_furniture.py
+@@ -83,15 +83,22 @@ def export(model_path, output_path, texture_source_dir, texture_output_dir):
+     data = json.loads(model_path.read_text(encoding="utf-8"))
+     textures = data["textures"]
+     names = []
+-    lookup = {}
++    name_lookup = {}
++    # Espace UV de chaque texture : Blockbench stocke les UV en pixels de l'espace
++    # `uv_width` x `uv_height` de la texture (résolution du projet à défaut).
++    resolution = data.get("resolution") or {}
++    default_uv = (resolution.get("width") or 16, resolution.get("height") or 16)
++    uv_sizes = []
+     texture_output_dir.mkdir(parents=True, exist_ok=True)
+ 
+     for index, texture in enumerate(textures):
+         name = Path(texture.get("name") or f"texture_{index}.png").name
+         names.append(name)
+-        lookup[str(index)] = index
+-        lookup[texture.get("id", "")] = index
+-        lookup[texture.get("name", "")] = index
++        name_lookup[texture.get("name", "")] = index
++        uv_sizes.append((
++            texture.get("uv_width") or default_uv[0],
++            texture.get("uv_height") or default_uv[1],
++        ))
+         source = texture.get("source", "")
+         destination = texture_output_dir / name
+         if source.startswith("data:"):
+@@ -121,9 +128,18 @@ def export(model_path, output_path, texture_source_dir, texture_output_dir):
+         for _, vertices, face in element_faces:
+             if not face or face.get("texture") is None:
+                 continue
+-            texture_index = lookup.get(str(face.get("texture")))
+-            if texture_index is None:
++            # `face.texture` est l'INDEX de la texture dans la liste `textures`.
++            # Ne surtout pas le confondre avec le champ `id` : les deux numérotations
++            # peuvent différer (ex. Chaise.bbmodel : ids 2/0/3 pour les index 0/1/2) et
++            # mélangeaient alors les faces de `1.png` avec `texture.png`.
++            texture_ref = face.get("texture")
++            if isinstance(texture_ref, str) and not texture_ref.isdigit():
++                texture_index = name_lookup.get(texture_ref)
++            else:
++                texture_index = int(texture_ref)
++            if texture_index is None or not 0 <= texture_index < len(textures):
+                 continue
++            uv_width, uv_height = uv_sizes[texture_index]
+             if vertices is None:
+                 vertices = [element.get("vertices", {}).get(key) for key in face.get("vertices", [])]
+             if any(vertex is None for vertex in vertices) or len(vertices) < 3:
+@@ -132,11 +148,18 @@ def export(model_path, output_path, texture_source_dir, texture_output_dir):
+             uv = face.get("uv", [])
+             uv_map = face.get("vertices", {})
+             uv_values = []
+-            for position, vertex_name in enumerate(face.get("vertices", []) if isinstance(uv_map, dict) else range(len(transformed))):
+-                coordinates = uv_map.get(vertex_name) if isinstance(uv_map, dict) else None
+-                if coordinates is None and isinstance(uv, list) and len(uv) >= 4:
+-                    coordinates = [uv[0] if position in (0, 3) else uv[2], uv[1] if position in (0, 1) else uv[3]]
+-                uv_values.append(((coordinates or [0, 0])[0] / 16, (coordinates or [0, 0])[1] / 16))
++            if isinstance(uv, dict):
++                # Élément `mesh` : `uv` est un dictionnaire {id_sommet: [u, v]} et
++                # `vertices` donne l'ordre des sommets de la face.
++                for vertex_name in face.get("vertices", []):
++                    u, v = uv.get(vertex_name, [0, 0])
++                    uv_values.append((u / uv_width, v / uv_height))
++            else:
++                for position, vertex_name in enumerate(face.get("vertices", []) if isinstance(uv_map, dict) else range(len(transformed))):
++                    coordinates = uv_map.get(vertex_name) if isinstance(uv_map, dict) else None
++                    if coordinates is None and isinstance(uv, list) and len(uv) >= 4:
++                        coordinates = [uv[0] if position in (0, 3) else uv[2], uv[1] if position in (0, 1) else uv[3]]
++                    uv_values.append(((coordinates or [0, 0])[0] / uv_width, (coordinates or [0, 0])[1] / uv_height))
+             if len(uv_values) != len(transformed):
+                 uv_values = [(0, 0)] * len(transformed)
+             normal = normalize(cross(
+diff --git a/scripts/export_furniture.py b/scripts/export_furniture.py
+index 1c107ea..9dc186a 100644
+--- a/scripts/export_furniture.py
++++ b/scripts/export_furniture.py
+@@ -83,15 +83,22 @@ def export(model_path, output_path, texture_source_dir, texture_output_dir):
+     data = json.loads(model_path.read_text(encoding="utf-8"))
+     textures = data["textures"]
+     names = []
+-    lookup = {}
++    name_lookup = {}
++    # Espace UV de chaque texture : Blockbench stocke les UV en pixels de l'espace
++    # `uv_width` x `uv_height` de la texture (résolution du projet à défaut).
++    resolution = data.get("resolution") or {}
++    default_uv = (resolution.get("width") or 16, resolution.get("height") or 16)
++    uv_sizes = []
+     texture_output_dir.mkdir(parents=True, exist_ok=True)
+ 
+     for index, texture in enumerate(textures):
+         name = Path(texture.get("name") or f"texture_{index}.png").name
+         names.append(name)
+-        lookup[str(index)] = index
+-        lookup[texture.get("id", "")] = index
+-        lookup[texture.get("name", "")] = index
++        name_lookup[texture.get("name", "")] = index
++        uv_sizes.append((
++            texture.get("uv_width") or default_uv[0],
++            texture.get("uv_height") or default_uv[1],
++        ))
+         source = texture.get("source", "")
+         destination = texture_output_dir / name
+         if source.startswith("data:"):
+@@ -121,9 +128,18 @@ def export(model_path, output_path, texture_source_dir, texture_output_dir):
+         for _, vertices, face in element_faces:
+             if not face or face.get("texture") is None:
+                 continue
+-            texture_index = lookup.get(str(face.get("texture")))
+-            if texture_index is None:
++            # `face.texture` est l'INDEX de la texture dans la liste `textures`.
++            # Ne surtout pas le confondre avec le champ `id` : les deux numérotations
++            # peuvent différer (ex. Chaise.bbmodel : ids 2/0/3 pour les index 0/1/2) et
++            # mélangeaient alors les faces de `1.png` avec `texture.png`.
++            texture_ref = face.get("texture")
++            if isinstance(texture_ref, str) and not texture_ref.isdigit():
++                texture_index = name_lookup.get(texture_ref)
++            else:
++                texture_index = int(texture_ref)
++            if texture_index is None or not 0 <= texture_index < len(textures):
+                 continue
++            uv_width, uv_height = uv_sizes[texture_index]
+             if vertices is None:
+                 vertices = [element.get("vertices", {}).get(key) for key in face.get("vertices", [])]
+             if any(vertex is None for vertex in vertices) or len(vertices) < 3:
+@@ -132,11 +148,18 @@ def export(model_path, output_path, texture_source_dir, texture_output_dir):
+             uv = face.get("uv", [])
+             uv_map = face.get("vertices", {})
+             uv_values = []
+-            for position, vertex_name in enumerate(face.get("vertices", []) if isinstance(uv_map, dict) else range(len(transformed))):
+-                coordinates = uv_map.get(vertex_name) if isinstance(uv_map, dict) else None
+-                if coordinates is None and isinstance(uv, list) and len(uv) >= 4:
+-                    coordinates = [uv[0] if position in (0, 3) else uv[2], uv[1] if position in (0, 1) else uv[3]]
+-                uv_values.append(((coordinates or [0, 0])[0] / 16, (coordinates or [0, 0])[1] / 16))
++            if isinstance(uv, dict):
++                # Élément `mesh` : `uv` est un dictionnaire {id_sommet: [u, v]} et
++                # `vertices` donne l'ordre des sommets de la face.
++                for vertex_name in face.get("vertices", []):
++                    u, v = uv.get(vertex_name, [0, 0])
++                    uv_values.append((u / uv_width, v / uv_height))
++            else:
++                for position, vertex_name in enumerate(face.get("vertices", []) if isinstance(uv_map, dict) else range(len(transformed))):
++                    coordinates = uv_map.get(vertex_name) if isinstance(uv_map, dict) else None
++                    if coordinates is None and isinstance(uv, list) and len(uv) >= 4:
++                        coordinates = [uv[0] if position in (0, 3) else uv[2], uv[1] if position in (0, 1) else uv[3]]
++                    uv_values.append(((coordinates or [0, 0])[0] / uv_width, (coordinates or [0, 0])[1] / uv_height))
+             if len(uv_values) != len(transformed):
+                 uv_values = [(0, 0)] * len(transformed)
+             normal = normalize(cross(
+diff --git a/src/client/java/fr/jmproduction/pocketdoor/client/ChairBlockEntityRenderer.java b/src/client/java/fr/jmproduction/pocketdoor/client/ChairBlockEntityRenderer.java
+index 0480cca..687b122 100644
+--- a/src/client/java/fr/jmproduction/pocketdoor/client/ChairBlockEntityRenderer.java
++++ b/src/client/java/fr/jmproduction/pocketdoor/client/ChairBlockEntityRenderer.java
+@@ -29,6 +29,8 @@ public final class ChairBlockEntityRenderer implements BlockEntityRenderer<Chair
+             new ResourceLocation("pocketdoor", "furniture/chair.pdmesh");
+     private static final String TEXTURE_DIR = "textures/block/furniture/chair/";
+     private static final Pattern TEXTURE_NAME = Pattern.compile("[A-Za-z0-9_-]+\\.png");
++    /** La chaise mesure 32 px de haut (2 blocs) ; le reste est mis à l'échelle à partir de là. */
++    private static final float CHAIR_HEIGHT_BLOCKS = 2.0F;
+     private static Mesh mesh;
+     private static boolean attemptedLoad;
+ 
+@@ -50,8 +52,11 @@ public final class ChairBlockEntityRenderer implements BlockEntityRenderer<Chair
+     private static final class Mesh {
+         final List<ResourceLocation> textures;
+         final List<List<Face>> facesByTexture;
+-        Mesh(List<ResourceLocation> textures, List<List<Face>> facesByTexture) {
++        /** Étendue verticale réelle du maillage, mesurée au chargement. */
++        final float minY, height;
++        Mesh(List<ResourceLocation> textures, List<List<Face>> facesByTexture, float minY, float height) {
+             this.textures = textures; this.facesByTexture = facesByTexture;
++            this.minY = minY; this.height = height;
+         }
+     }
+ 
+@@ -85,8 +90,11 @@ public final class ChairBlockEntityRenderer implements BlockEntityRenderer<Chair
+         poseStack.pushPose();
+         poseStack.translate(0.5D, 0.0D, 0.5D);
+         poseStack.mulPose(Vector3f.YP.rotationDegrees(rotation));
+-        // The Blockbench chair is about 21.5 model units tall; scale it to roughly 2 Minecraft blocks.
+-        poseStack.scale(1.0F / 10.75F, 1.0F / 10.75F, 1.0F / 10.75F);
++        // Le maillage est normalisé par l'exporteur : on mesure sa hauteur réelle et on la
++        // ramène à exactement 32 px (2 blocs), quelle que soit l'unité du fichier .pdmesh.
++        float scale = current.height > 0.0F ? CHAIR_HEIGHT_BLOCKS / current.height : 1.0F / 16.0F;
++        poseStack.scale(scale, scale, scale);
++        poseStack.translate(0.0D, -current.minY, 0.0D);
+ 
+         for (int i = 0; i < current.facesByTexture.size(); i++) {
+             List<Face> faces = current.facesByTexture.get(i);
+@@ -142,6 +150,8 @@ public final class ChairBlockEntityRenderer implements BlockEntityRenderer<Chair
+ 
+                 List<List<Face>> facesByTexture = new ArrayList<>(textureCount);
+                 for (int i = 0; i < textureCount; i++) facesByTexture.add(new ArrayList<>());
++                float minY = Float.MAX_VALUE;
++                float maxY = -Float.MAX_VALUE;
+ 
+                 int faceCount = in.readInt();
+                 if (faceCount < 0 || faceCount > 100000) {
+@@ -166,13 +176,15 @@ public final class ChairBlockEntityRenderer implements BlockEntityRenderer<Chair
+                         float z = in.readFloat();
+                         float u = in.readFloat();
+                         float vCoord = in.readFloat();
+-                        // The exported Blockbench UVs are in texture pixels, while Minecraft expects 0..1.
+-                        float textureSize = "1.png".equals(nameForTexture(textures, textureIndex)) ? 32.0F : 16.0F;
+-                        vertices[v] = new Vertex(x, y, z, u / textureSize, vCoord / textureSize);
++                        // Les UV du .pdmesh sont déjà normalisées (0..1) par l'exporteur, texture par texture.
++                        vertices[v] = new Vertex(x, y, z, u, vCoord);
++                        minY = Math.min(minY, y);
++                        maxY = Math.max(maxY, y);
+                     }
+                     addAsQuads(facesByTexture.get(textureIndex), nx, ny, nz, vertices);
+                 }
+-                return new Mesh(textures, facesByTexture);
++                if (faceCount == 0) throw new IOException("Chair mesh has no faces");
++                return new Mesh(textures, facesByTexture, minY, maxY - minY);
+             }
+         } catch (Exception e) {
+             PocketDoorMod.LOGGER.error("Unable to load chair mesh {}", MODEL, e);
+@@ -180,10 +192,6 @@ public final class ChairBlockEntityRenderer implements BlockEntityRenderer<Chair
+         }
+     }
+ 
+-    private static String nameForTexture(List<ResourceLocation> textures, int index) {
+-        return textures.get(index).getPath().substring(TEXTURE_DIR.length());
+-    }
+-
+     private static void addAsQuads(List<Face> output, float nx, float ny, float nz, Vertex[] vertices) {
+         if (vertices.length == 4) {
+             output.add(new Face(nx, ny, nz, vertices));
+diff --git a/src/client/java/fr/jmproduction/pocketdoor/client/ChairClient.java b/src/client/java/fr/jmproduction/pocketdoor/client/ChairClient.java
+index 9388619..c2455ba 100644
+--- a/src/client/java/fr/jmproduction/pocketdoor/client/ChairClient.java
++++ b/src/client/java/fr/jmproduction/pocketdoor/client/ChairClient.java
+@@ -2,17 +2,18 @@ package fr.jmproduction.pocketdoor.client;
+ 
+ import fr.jmproduction.pocketdoor.block.ModBlockEntities;
+ import fr.jmproduction.pocketdoor.block.ModBlocks;
+-import fr.jmproduction.pocketdoor.entity.ModEntities;
+ import net.fabricmc.api.ClientModInitializer;
+ import net.fabricmc.fabric.api.client.rendering.v1.BuiltinItemRendererRegistry;
+-import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
+ import net.minecraft.client.renderer.blockentity.BlockEntityRenderers;
+ 
++/**
++ * Enregistre le rendu du modèle de la chaise (bloc et objet). Déclaré dans fabric.mod.json.
++ * Le siège est un ArmorStand vanilla : aucun rendu d'entité n'est à enregistrer ici.
++ */
+ public final class ChairClient implements ClientModInitializer {
+     @Override
+     public void onInitializeClient() {
+         BlockEntityRenderers.register(ModBlockEntities.POCKET_CHAIR, ChairBlockEntityRenderer::new);
+-        EntityRendererRegistry.register(ModEntities.CHAIR_SEAT, ChairSeatRenderer::new);
+         BuiltinItemRendererRegistry.INSTANCE.register(ModBlocks.POCKET_CHAIR,
+                 (stack, mode, poseStack, buffers, light, overlay) ->
+                         ChairBlockEntityRenderer.renderItem(poseStack, buffers, light, overlay));
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/block/ChairBlock.java b/src/main/java/fr/jmproduction/pocketdoor/block/ChairBlock.java
+index b6afc16..c668a10 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/block/ChairBlock.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/block/ChairBlock.java
+@@ -9,10 +9,13 @@ import net.minecraft.world.InteractionResult;
+ import net.minecraft.world.entity.Entity;
+ import net.minecraft.world.entity.decoration.ArmorStand;
+ import net.minecraft.world.entity.player.Player;
++import net.minecraft.world.item.context.BlockPlaceContext;
+ import net.minecraft.world.level.BlockGetter;
+ import net.minecraft.world.level.Level;
+ import net.minecraft.world.level.block.Block;
++import net.minecraft.world.level.block.EntityBlock;
+ import net.minecraft.world.level.block.RenderShape;
++import net.minecraft.world.level.block.entity.BlockEntity;
+ import net.minecraft.world.level.block.state.BlockState;
+ import net.minecraft.world.level.block.state.StateDefinition;
+ import net.minecraft.world.level.block.state.properties.DirectionProperty;
+@@ -20,13 +23,23 @@ import net.minecraft.world.phys.BlockHitResult;
+ import net.minecraft.world.phys.shapes.CollisionContext;
+ import net.minecraft.world.phys.shapes.VoxelShape;
+ 
+-/** Visible chair model with a lightweight ArmorStand seat passenger. */
+-public class ChairBlock extends Block {
++/**
++ * Chaise de bureau (32 px de haut, soit 2 blocs). Le modèle Blockbench est dessiné par
++ * {@code ChairBlockEntityRenderer} ; le siège est un ArmorStand invisible léger.
++ * Le dossier se trouve du côté {@code FACING}.
++ */
++public class ChairBlock extends Block implements EntityBlock {
+     public static final DirectionProperty FACING = DirectionProperty.create("facing", Direction.Plane.HORIZONTAL);
+     private static final VoxelShape SHAPE = Block.box(1, 0, 1, 15, 16, 15);
+     public ChairBlock(Properties properties) { super(properties); registerDefaultState(defaultBlockState().setValue(FACING, Direction.SOUTH)); }
+     @Override protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> b) { b.add(FACING); }
+-    @Override public RenderShape getRenderShape(BlockState state) { return RenderShape.MODEL; }
++    @Override public BlockState getStateForPlacement(BlockPlaceContext context) {
++        return defaultBlockState().setValue(FACING, context.getHorizontalDirection().getOpposite());
++    }
++    // Le rendu passe par le BlockEntityRenderer : sans ENTITYBLOCK_ANIMATED, le modèle JSON de
++    // secours (3 boîtes) s'afficherait à la place du vrai modèle.
++    @Override public RenderShape getRenderShape(BlockState state) { return RenderShape.ENTITYBLOCK_ANIMATED; }
++    @Override public BlockEntity newBlockEntity(BlockPos pos, BlockState state) { return new ChairBlockEntity(pos, state); }
+     @Override public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext c) { return SHAPE; }
+     @Override public InteractionResult use(BlockState state, Level level, BlockPos pos, Player player, InteractionHand hand, BlockHitResult hit) {
+         if (level.isClientSide) return InteractionResult.SUCCESS;
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/data/PocketOfficeSavedData.java b/src/main/java/fr/jmproduction/pocketdoor/data/PocketOfficeSavedData.java
+index 8b45c09..1a43a44 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/data/PocketOfficeSavedData.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/data/PocketOfficeSavedData.java
+@@ -7,8 +7,16 @@ import net.minecraft.world.level.saveddata.SavedData;
+ public class PocketOfficeSavedData extends SavedData {
+     private static final String DATA_ID = "pocketoffice_data";
+     private static final String GENERATED = "Generated";
++    private static final String LAYOUT = "Layout";
++
++    /**
++     * Version de l'agencement du mobilier.
++     * 1 = chaise au sud du bureau (anciens mondes) ; 2 = chaise au nord, de l'autre côté du bureau.
++     */
++    public static final int CURRENT_LAYOUT = 2;
+ 
+     private boolean generated;
++    private int layout;
+ 
+     public PocketOfficeSavedData() {
+     }
+@@ -16,12 +24,15 @@ public class PocketOfficeSavedData extends SavedData {
+     public static PocketOfficeSavedData load(CompoundTag tag) {
+         PocketOfficeSavedData data = new PocketOfficeSavedData();
+         data.generated = tag.getBoolean(GENERATED);
++        // Les mondes sauvegardés avant l'introduction de ce champ ont l'agencement 1.
++        data.layout = tag.contains(LAYOUT) ? tag.getInt(LAYOUT) : (data.generated ? 1 : 0);
+         return data;
+     }
+ 
+     @Override
+     public CompoundTag save(CompoundTag tag) {
+         tag.putBoolean(GENERATED, generated);
++        tag.putInt(LAYOUT, layout);
+         return tag;
+     }
+ 
+@@ -39,6 +50,16 @@ public class PocketOfficeSavedData extends SavedData {
+ 
+     public void markGenerated() {
+         generated = true;
++        layout = CURRENT_LAYOUT;
++        setDirty();
++    }
++
++    public int getLayout() {
++        return layout;
++    }
++
++    public void setLayout(int layout) {
++        this.layout = layout;
+         setDirty();
+     }
+ }
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java b/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java
+index 68eb509..4c370d1 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java
+@@ -40,6 +40,15 @@ public final class PocketOfficeGenerator {
+     /** Pocket-side door in the center of the south wall. */
+     public static final BlockPos POCKET_DOOR_LOWER = new BlockPos(8, FLOOR_Y + 1, 16);
+ 
++    /**
++     * Chaise : côté nord du bureau (centre en z = 6), donc de l'autre côté que la porte et du côté
++     * où la machine à écrire est tournée. Son dossier est au nord (FACING = NORTH), le siège face au bureau.
++     */
++    private static final BlockPos CHAIR_POS = new BlockPos(8, FLOOR_Y + 1, 5);
++    private static final Direction CHAIR_FACING = Direction.NORTH;
++    /** Ancien emplacement (agencement 1), au sud du bureau. */
++    private static final BlockPos LEGACY_CHAIR_POS = new BlockPos(8, FLOOR_Y + 1, 7);
++
+     private PocketOfficeGenerator() {
+     }
+ 
+@@ -95,6 +104,7 @@ public final class PocketOfficeGenerator {
+         PocketOfficeSavedData data = PocketOfficeSavedData.get(level);
+         if (data.isGenerated()) {
+             ensurePocketDoor(level);
++            migrateLayout(level, data);
+             return;
+         }
+ 
+@@ -177,19 +187,40 @@ public final class PocketOfficeGenerator {
+ 
+     private static void placeDeskLayout(ServerLevel level) {
+         // Existing typewriter coordinates establish the desk centre at (8, 66, 6).
+-        // The three desk blocks run east-west; the chair is directly north of centre.
++        // The three desk blocks run east-west; the chair is directly north of centre,
++        // on the other side of the desk from the door.
+         BlockPos center = new BlockPos(8, 65, 6);
+         var desk = ModBlocks.DESK.defaultBlockState().setValue(DeskBlock.FACING, Direction.SOUTH);
+         place(level, center, desk);
+         Direction axis = Direction.EAST;
+         place(level, center.relative(axis.getOpposite()), ModBlocks.DESK_PART.defaultBlockState().setValue(DeskPartBlock.FACING, Direction.SOUTH).setValue(DeskPartBlock.POSITIVE, false));
+         place(level, center.relative(axis), ModBlocks.DESK_PART.defaultBlockState().setValue(DeskPartBlock.FACING, Direction.SOUTH).setValue(DeskPartBlock.POSITIVE, true));
+-        place(level, new BlockPos(8, 65, 7), ModBlocks.POCKET_CHAIR.defaultBlockState()
+-                .setValue(ChairBlock.FACING, Direction.SOUTH));
++        place(level, CHAIR_POS, chairState());
+         place(level, new BlockPos(8, 66, 6),
+                 ModBlocks.TYPEWRITER.defaultBlockState().setValue(TypewriterBlock.FACING, Direction.NORTH));
+     }
+ 
++    private static BlockState chairState() {
++        return ModBlocks.POCKET_CHAIR.defaultBlockState().setValue(ChairBlock.FACING, CHAIR_FACING);
++    }
++
++    /**
++     * Mondes déjà générés avec l'ancien agencement : déplace la chaise de l'autre côté du bureau,
++     * une seule fois (la version d'agencement est enregistrée), sans écraser un bloc posé là par le joueur.
++     */
++    private static void migrateLayout(ServerLevel level, PocketOfficeSavedData data) {
++        if (data.getLayout() >= PocketOfficeSavedData.CURRENT_LAYOUT) {
++            return;
++        }
++        if (level.getBlockState(LEGACY_CHAIR_POS).is(ModBlocks.POCKET_CHAIR)
++                && level.getBlockState(CHAIR_POS).isAir()) {
++            place(level, LEGACY_CHAIR_POS, Blocks.AIR.defaultBlockState());
++            place(level, CHAIR_POS, chairState());
++            PocketDoorMod.LOGGER.info("Moved the Pocket Office chair to the other side of the desk.");
++        }
++        data.setLayout(PocketOfficeSavedData.CURRENT_LAYOUT);
++    }
++
+     private static void generateWallDecorations(ServerLevel level) {
+         RandomSource random = RandomSource.create(level.getSeed() ^ 0x504F434B45544F46L);
+ 
+diff --git a/src/main/resources/assets/pocketdoor/furniture/chair.pdmesh b/src/main/resources/assets/pocketdoor/furniture/chair.pdmesh
+index 660411935ea081e0bcb36e15c4773748d715a032..03e0f51d150e764f2ed9ce06ca9ec591dd1eaac2 100644
+GIT binary patch
+delta 3571
+zcmb7GJ8KkS6diW(kxsA`L@+6Alwhel6OzhC8(}*UQWywp3j6sG>;v-$wy;xznjesD
+zZB1i}{0dtO@40i&oja46Q9p1WXTNjqxvw!N7qgR#*_W@ctE@;_JbAf&x!AdO<GkEm
+zKAazC8U87D@bM)v5F9(&{4h_g#DD1>RV~>An;-(?oF#qZOTMN-x%X7i;#QU^27`uy
+z>zE`0@}ORoWz&Lz?12qKV4je5Q$aIR+{`kVEMeLz2n+{$6+yadev+&bKV^f0F*|Y{
+zLj|P*2#m9tI#rA<u9_aN%pv-2WC*CBVGv`W2|?Ez;yNZ3RK1ndpC`!&%er+4Gx7rh
+zmn@-S;HjXM8sFnd@?}a-x%H?0yA{(S`wY}L7-E+$JfdN^=+0~~fW<SVC)|4D)jjuM
+zj!DnU>szxpBU%Yy?|wY!tRt~d9f<s+UeyQ&vIh<=fS@IVk2v|72IU@ls_PicaBlRT
+znFf(XZ}i$Zm=?4OgY1C~8(qg>#@CUUaCIFKKRTp4IK>HNY+8a$Bx4E=aUDYi!#YAQ
+zR8jRh&w=?$W-62w<W9y`>S(er*qIs8Q#1W1BxCF@E89nSYfh3k%eoyxWFkKxuo|=~
+z@cADzZdBS=p-t%3`){^<2S~D<+KG^EF}#N|3>>#)6G0umPw5G_-Z&WF!{VDfz{Ad=
+z1d1hz3lH)g$1y8agL>-xnvdvJi=8Bbf$SGU?V%DHj<5L{4az<4p<=1g;~qL@MWXRW
+zFYMu@U?BTF!^ZZofI&0EwQ)?izK1G^ivrS}WT>Y|_CYdsvSdubA+BSnptK2<;0aY!
+zy{gmWmGzTjE@TL(pkXZQm|$OTi0jzj_OJ*&<{~JTx-+AKhS3<`1@=9>s#o7X9N$Bg
+z<qn9B*FrvPv!E@<E!jjgX!~kKZ$}o5PK};$>+gr-dx-yQ%ge=!_4E8EIg0%{{jHew
+zh**D!!T`aL{-rUXS1n2rjARCmi9#VvkP5ENAntKE6f-?sLg9$PG%&7BqxTGu9{uwa
+z4u=FInSp^JFa_)F<>Nd3h%6mK)bE#%Dgw0CPjl!`zJa=FZz7kjfN4JV($l*=(1?2P
+zZFd%vaIJrS9lBip5~a5?>(fN;ck+?4$CKpCl%8;}&OuBFRgF&*h}%4P+t`kN2Xr=8
+evN&cM_i$$}SbO%S1&7FraYG<@eERul_T&%DA1QMH
+
+delta 2993
+zcmbVOJ!=$E6rJq)K~Te5m|{2T22Bh$LNHb?vq8Z^K^tMwB7Ouh8e#<dnMM$_Sa_gy
+zlI;vZ%@4@7w%V8?{~(>Mh3DM4_wAcZCVmWLcjxRq_nv#+y_?zCu54^qK7D@ZUap*)
+znLT{;d;8kbrMMPF{A*9|bY>TNcMXehd2D&&bxgoLUuj$^Wm=RmSwXS5=8mt{&j=Mz
+zD@D<66!opBV6OjYw30<mltw}_l~8iuHRh(0AVvHpikRB#W`DqV`BK_*hDJktk5j#i
+zqN?Xox#ruCYuK=~2sJHtb8U|~O_gFsAWC#ovSQ*y&D~n7=Y0iLD&)cf3|$Dd>2}xZ
+z-Yp(d?l9GUw%2zbA55JLN@u~YH$O?!-}UOJ{mE(?>rrOHJ)S$~-uG%F`6zd2?m~jb
+za18}M^1j+WGFb^{N~95c_3dJA&I}9W{!6}lk}x3q!iupl6K<vQZZFlo2}GQq$v{ji
+zb?KAQ<iF_QpjsKjx}u;sdqHWNJ+zVx46|Xjz&{PM#nA^FX2Sxm_`pM99K50zxJ2Mq
+zn#c`biYMB{h%+I7Ih4!<1!MI9m?Suaee)H#Nth6-v%zPoOks)-I(mbI6hj<b5op~3
+z<0VBD%Mf{$j#GRL^NslK_(jdlKb`a=AuPOTQ-g`3yAmGMQj8q02^jD7lKT97P(E<o
+z@WQy)pjs_QHU5I%mte){fnX`>QbTqa15CZr1cfy&$#=gq%Y*^h2L|RNX<_ZQOd#TH
+z?F7?&SiAPK^0hmVu70vdA7@xsIxMVROgYwyZV9j?18JD9og`#nU?NifRl@za9;06n
+zT)K8plRwd>o~TVV$hnTqSl}j5CyMvQ326py88-o06zV7)w02$~J3$4C5iHG5h~!fY
+zVRjYPj@*&(R~>72ezAP*B(IG;vU)R8JuR)|HR(twTv)sP@`3BVE{^k`<>E@?@=oVY
+z|916<b=#ia>9l`t{t`@&!!SQDczzlyBl;j{5+Vu+Mvd;+>e!3|at^4#|IVz)AjYs~
+z!>B^AE}pv@Wz0d8GPS2{C*AsL!`)aqJGwV<*0Oy4VX09!2duUi9pSM?Y8QM8TZ2qt
+zDn`}l7t9l?M$27)A<rqhSxPCQyV?$nuvN{8fiXx4CcO`t#i+a(cHVMtd*VI2*z3K=
+gntEvA1T^tb<@-0Li4{+fJ~pOxORToJzFfKb8x<4ECIA2c
+
+diff --git a/src/main/resources/assets/pocketdoor/models/item/pocket_chair.json b/src/main/resources/assets/pocketdoor/models/item/pocket_chair.json
+index 687d3a2..48fab98 100644
+--- a/src/main/resources/assets/pocketdoor/models/item/pocket_chair.json
++++ b/src/main/resources/assets/pocketdoor/models/item/pocket_chair.json
+@@ -1 +1,124 @@
+-{"parent":"pocketdoor:block/pocket_chair"}
++{
++  "parent": "builtin/entity",
++  "display": {
++    "thirdperson_righthand": {
++      "rotation": [
++        75,
++        45,
++        0
++      ],
++      "translation": [
++        0,
++        2.5,
++        0
++      ],
++      "scale": [
++        0.375,
++        0.375,
++        0.375
++      ]
++    },
++    "thirdperson_lefthand": {
++      "rotation": [
++        75,
++        45,
++        0
++      ],
++      "translation": [
++        0,
++        2.5,
++        0
++      ],
++      "scale": [
++        0.375,
++        0.375,
++        0.375
++      ]
++    },
++    "firstperson_righthand": {
++      "rotation": [
++        0,
++        45,
++        0
++      ],
++      "translation": [
++        0,
++        0,
++        0
++      ],
++      "scale": [
++        0.4,
++        0.4,
++        0.4
++      ]
++    },
++    "firstperson_lefthand": {
++      "rotation": [
++        0,
++        45,
++        0
++      ],
++      "translation": [
++        0,
++        0,
++        0
++      ],
++      "scale": [
++        0.4,
++        0.4,
++        0.4
++      ]
++    },
++    "gui": {
++      "rotation": [
++        30,
++        225,
++        0
++      ],
++      "translation": [
++        0,
++        0,
++        0
++      ],
++      "scale": [
++        0.85,
++        0.85,
++        0.85
++      ]
++    },
++    "ground": {
++      "rotation": [
++        0,
++        0,
++        0
++      ],
++      "translation": [
++        0,
++        3,
++        0
++      ],
++      "scale": [
++        0.25,
++        0.25,
++        0.25
++      ]
++    },
++    "fixed": {
++      "rotation": [
++        0,
++        180,
++        0
++      ],
++      "translation": [
++        0,
++        0,
++        0
++      ],
++      "scale": [
++        0.5,
++        0.5,
++        0.5
++      ]
++    }
++  }
++}
+diff --git a/src/main/resources/fabric.mod.json b/src/main/resources/fabric.mod.json
+index fc44263..dd7443d 100644
+--- a/src/main/resources/fabric.mod.json
++++ b/src/main/resources/fabric.mod.json
+@@ -14,7 +14,8 @@
+       "fr.jmproduction.pocketdoor.PocketDoorMod"
+     ],
+     "client": [
+-      "fr.jmproduction.pocketdoor.client.PocketDoorClient"
++      "fr.jmproduction.pocketdoor.client.PocketDoorClient",
++      "fr.jmproduction.pocketdoor.client.ChairClient"
+     ]
+   },
+   "depends": {

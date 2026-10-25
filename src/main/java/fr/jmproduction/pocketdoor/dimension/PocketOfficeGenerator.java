@@ -40,6 +40,15 @@ public final class PocketOfficeGenerator {
     /** Pocket-side door in the center of the south wall. */
     public static final BlockPos POCKET_DOOR_LOWER = new BlockPos(8, FLOOR_Y + 1, 16);
 
+    /**
+     * Chaise : côté nord du bureau (centre en z = 6), donc de l'autre côté que la porte et du côté
+     * où la machine à écrire est tournée. Son dossier est au nord (FACING = NORTH), le siège face au bureau.
+     */
+    private static final BlockPos CHAIR_POS = new BlockPos(8, FLOOR_Y + 1, 5);
+    private static final Direction CHAIR_FACING = Direction.NORTH;
+    /** Ancien emplacement (agencement 1), au sud du bureau. */
+    private static final BlockPos LEGACY_CHAIR_POS = new BlockPos(8, FLOOR_Y + 1, 7);
+
     private PocketOfficeGenerator() {
     }
 
@@ -95,6 +104,7 @@ public final class PocketOfficeGenerator {
         PocketOfficeSavedData data = PocketOfficeSavedData.get(level);
         if (data.isGenerated()) {
             ensurePocketDoor(level);
+            migrateLayout(level, data);
             return;
         }
 
@@ -177,17 +187,38 @@ public final class PocketOfficeGenerator {
 
     private static void placeDeskLayout(ServerLevel level) {
         // Existing typewriter coordinates establish the desk centre at (8, 66, 6).
-        // The three desk blocks run east-west; the chair is directly north of centre.
+        // The three desk blocks run east-west; the chair is directly north of centre,
+        // on the other side of the desk from the door.
         BlockPos center = new BlockPos(8, 65, 6);
         var desk = ModBlocks.DESK.defaultBlockState().setValue(DeskBlock.FACING, Direction.SOUTH);
         place(level, center, desk);
         Direction axis = Direction.EAST;
         place(level, center.relative(axis.getOpposite()), ModBlocks.DESK_PART.defaultBlockState().setValue(DeskPartBlock.FACING, Direction.SOUTH).setValue(DeskPartBlock.POSITIVE, false));
         place(level, center.relative(axis), ModBlocks.DESK_PART.defaultBlockState().setValue(DeskPartBlock.FACING, Direction.SOUTH).setValue(DeskPartBlock.POSITIVE, true));
-        place(level, new BlockPos(8, 65, 7), ModBlocks.POCKET_CHAIR.defaultBlockState()
-                .setValue(ChairBlock.FACING, Direction.SOUTH));
+        place(level, CHAIR_POS, chairState());
         place(level, new BlockPos(8, 66, 6),
                 ModBlocks.TYPEWRITER.defaultBlockState().setValue(TypewriterBlock.FACING, Direction.NORTH));
+    }
+
+    private static BlockState chairState() {
+        return ModBlocks.POCKET_CHAIR.defaultBlockState().setValue(ChairBlock.FACING, CHAIR_FACING);
+    }
+
+    /**
+     * Mondes déjà générés avec l'ancien agencement : déplace la chaise de l'autre côté du bureau,
+     * une seule fois (la version d'agencement est enregistrée), sans écraser un bloc posé là par le joueur.
+     */
+    private static void migrateLayout(ServerLevel level, PocketOfficeSavedData data) {
+        if (data.getLayout() >= PocketOfficeSavedData.CURRENT_LAYOUT) {
+            return;
+        }
+        if (level.getBlockState(LEGACY_CHAIR_POS).is(ModBlocks.POCKET_CHAIR)
+                && level.getBlockState(CHAIR_POS).isAir()) {
+            place(level, LEGACY_CHAIR_POS, Blocks.AIR.defaultBlockState());
+            place(level, CHAIR_POS, chairState());
+            PocketDoorMod.LOGGER.info("Moved the Pocket Office chair to the other side of the desk.");
+        }
+        data.setLayout(PocketOfficeSavedData.CURRENT_LAYOUT);
     }
 
     private static void generateWallDecorations(ServerLevel level) {

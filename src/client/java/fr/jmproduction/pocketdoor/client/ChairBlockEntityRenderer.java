@@ -29,6 +29,8 @@ public final class ChairBlockEntityRenderer implements BlockEntityRenderer<Chair
             new ResourceLocation("pocketdoor", "furniture/chair.pdmesh");
     private static final String TEXTURE_DIR = "textures/block/furniture/chair/";
     private static final Pattern TEXTURE_NAME = Pattern.compile("[A-Za-z0-9_-]+\\.png");
+    /** La chaise mesure 32 px de haut (2 blocs) ; le reste est mis à l'échelle à partir de là. */
+    private static final float CHAIR_HEIGHT_BLOCKS = 2.0F;
     private static Mesh mesh;
     private static boolean attemptedLoad;
 
@@ -50,8 +52,11 @@ public final class ChairBlockEntityRenderer implements BlockEntityRenderer<Chair
     private static final class Mesh {
         final List<ResourceLocation> textures;
         final List<List<Face>> facesByTexture;
-        Mesh(List<ResourceLocation> textures, List<List<Face>> facesByTexture) {
+        /** Étendue verticale réelle du maillage, mesurée au chargement. */
+        final float minY, height;
+        Mesh(List<ResourceLocation> textures, List<List<Face>> facesByTexture, float minY, float height) {
             this.textures = textures; this.facesByTexture = facesByTexture;
+            this.minY = minY; this.height = height;
         }
     }
 
@@ -85,8 +90,11 @@ public final class ChairBlockEntityRenderer implements BlockEntityRenderer<Chair
         poseStack.pushPose();
         poseStack.translate(0.5D, 0.0D, 0.5D);
         poseStack.mulPose(Vector3f.YP.rotationDegrees(rotation));
-        // The Blockbench chair is about 21.5 model units tall; scale it to roughly 2 Minecraft blocks.
-        poseStack.scale(1.0F / 10.75F, 1.0F / 10.75F, 1.0F / 10.75F);
+        // Le maillage est normalisé par l'exporteur : on mesure sa hauteur réelle et on la
+        // ramène à exactement 32 px (2 blocs), quelle que soit l'unité du fichier .pdmesh.
+        float scale = current.height > 0.0F ? CHAIR_HEIGHT_BLOCKS / current.height : 1.0F / 16.0F;
+        poseStack.scale(scale, scale, scale);
+        poseStack.translate(0.0D, -current.minY, 0.0D);
 
         for (int i = 0; i < current.facesByTexture.size(); i++) {
             List<Face> faces = current.facesByTexture.get(i);
@@ -142,6 +150,8 @@ public final class ChairBlockEntityRenderer implements BlockEntityRenderer<Chair
 
                 List<List<Face>> facesByTexture = new ArrayList<>(textureCount);
                 for (int i = 0; i < textureCount; i++) facesByTexture.add(new ArrayList<>());
+                float minY = Float.MAX_VALUE;
+                float maxY = -Float.MAX_VALUE;
 
                 int faceCount = in.readInt();
                 if (faceCount < 0 || faceCount > 100000) {
@@ -166,22 +176,20 @@ public final class ChairBlockEntityRenderer implements BlockEntityRenderer<Chair
                         float z = in.readFloat();
                         float u = in.readFloat();
                         float vCoord = in.readFloat();
-                        // The exported Blockbench UVs are in texture pixels, while Minecraft expects 0..1.
-                        float textureSize = "1.png".equals(nameForTexture(textures, textureIndex)) ? 32.0F : 16.0F;
-                        vertices[v] = new Vertex(x, y, z, u / textureSize, vCoord / textureSize);
+                        // Les UV du .pdmesh sont déjà normalisées (0..1) par l'exporteur, texture par texture.
+                        vertices[v] = new Vertex(x, y, z, u, vCoord);
+                        minY = Math.min(minY, y);
+                        maxY = Math.max(maxY, y);
                     }
                     addAsQuads(facesByTexture.get(textureIndex), nx, ny, nz, vertices);
                 }
-                return new Mesh(textures, facesByTexture);
+                if (faceCount == 0) throw new IOException("Chair mesh has no faces");
+                return new Mesh(textures, facesByTexture, minY, maxY - minY);
             }
         } catch (Exception e) {
             PocketDoorMod.LOGGER.error("Unable to load chair mesh {}", MODEL, e);
             return null;
         }
-    }
-
-    private static String nameForTexture(List<ResourceLocation> textures, int index) {
-        return textures.get(index).getPath().substring(TEXTURE_DIR.length());
     }
 
     private static void addAsQuads(List<Face> output, float nx, float ny, float nz, Vertex[] vertices) {

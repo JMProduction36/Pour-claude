@@ -9,10 +9,13 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.RenderShape;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
@@ -20,13 +23,23 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
-/** Visible chair model with a lightweight ArmorStand seat passenger. */
-public class ChairBlock extends Block {
+/**
+ * Chaise de bureau (32 px de haut, soit 2 blocs). Le modèle Blockbench est dessiné par
+ * {@code ChairBlockEntityRenderer} ; le siège est un ArmorStand invisible léger.
+ * Le dossier se trouve du côté {@code FACING}.
+ */
+public class ChairBlock extends Block implements EntityBlock {
     public static final DirectionProperty FACING = DirectionProperty.create("facing", Direction.Plane.HORIZONTAL);
     private static final VoxelShape SHAPE = Block.box(1, 0, 1, 15, 16, 15);
     public ChairBlock(Properties properties) { super(properties); registerDefaultState(defaultBlockState().setValue(FACING, Direction.SOUTH)); }
     @Override protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> b) { b.add(FACING); }
-    @Override public RenderShape getRenderShape(BlockState state) { return RenderShape.MODEL; }
+    @Override public BlockState getStateForPlacement(BlockPlaceContext context) {
+        return defaultBlockState().setValue(FACING, context.getHorizontalDirection().getOpposite());
+    }
+    // Le rendu passe par le BlockEntityRenderer : sans ENTITYBLOCK_ANIMATED, le modèle JSON de
+    // secours (3 boîtes) s'afficherait à la place du vrai modèle.
+    @Override public RenderShape getRenderShape(BlockState state) { return RenderShape.ENTITYBLOCK_ANIMATED; }
+    @Override public BlockEntity newBlockEntity(BlockPos pos, BlockState state) { return new ChairBlockEntity(pos, state); }
     @Override public VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext c) { return SHAPE; }
     @Override public InteractionResult use(BlockState state, Level level, BlockPos pos, Player player, InteractionHand hand, BlockHitResult hit) {
         if (level.isClientSide) return InteractionResult.SUCCESS;
