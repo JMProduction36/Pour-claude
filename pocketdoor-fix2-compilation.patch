@@ -1,0 +1,87 @@
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/block/ModBlockEntities.java b/src/main/java/fr/jmproduction/pocketdoor/block/ModBlockEntities.java
+index 264daf9..8752bae 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/block/ModBlockEntities.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/block/ModBlockEntities.java
+@@ -12,6 +12,18 @@ public final class ModBlockEntities {
+             BlockEntityType.Builder.of(TypewriterBlockEntity::new, ModBlocks.TYPEWRITER).build(null)
+     );
+ 
++    public static final BlockEntityType<FurnitureBlockEntity> FURNITURE = Registry.register(
++            Registry.BLOCK_ENTITY_TYPE,
++            new ResourceLocation(PocketDoorMod.MOD_ID, "furniture"),
++            BlockEntityType.Builder.of(FurnitureBlockEntity::new, ModBlocks.DESK).build(null)
++    );
++
++    public static final BlockEntityType<ChairBlockEntity> POCKET_CHAIR = Registry.register(
++            Registry.BLOCK_ENTITY_TYPE,
++            new ResourceLocation(PocketDoorMod.MOD_ID, "pocket_chair"),
++            BlockEntityType.Builder.of(ChairBlockEntity::new, ModBlocks.POCKET_CHAIR).build(null)
++    );
++
+     private ModBlockEntities() {
+     }
+ 
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/block/ModBlocks.java b/src/main/java/fr/jmproduction/pocketdoor/block/ModBlocks.java
+index 6f7747d..3205862 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/block/ModBlocks.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/block/ModBlocks.java
+@@ -7,6 +7,7 @@ import net.minecraft.world.item.BlockItem;
+ import net.minecraft.world.item.Item;
+ import net.minecraft.world.level.block.Block;
+ import net.minecraft.world.level.block.Blocks;
++import net.minecraft.world.level.block.GlassBlock;
+ import net.minecraft.world.level.block.state.BlockBehaviour;
+ import net.minecraft.world.level.block.SoundType;
+ import net.minecraft.world.level.material.Material;
+@@ -32,6 +33,14 @@ public final class ModBlocks {
+                     .noLootTable())
+     );
+ 
++    /** Vitre du bureau : insensible au minage et aux explosions. */
++    public static final Block POCKET_GLASS = registerBlockOnly(
++            "pocket_glass",
++            new GlassBlock(BlockBehaviour.Properties.copy(Blocks.GLASS)
++                    .strength(-1.0F, 3600000.0F)
++                    .noLootTable())
++    );
++
+     /** Invisible seat block used by the procedural office. */
+     public static final Block POCKET_CHAIR = register(
+             "pocket_chair",
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/block/PocketDoorBlock.java b/src/main/java/fr/jmproduction/pocketdoor/block/PocketDoorBlock.java
+index d65a00d..4f98578 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/block/PocketDoorBlock.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/block/PocketDoorBlock.java
+@@ -108,19 +108,6 @@ public class PocketDoorBlock extends DoorBlock {
+         return true;
+     }
+ 
+-    /**
+-     * Pocket doors are configured with infinite blast resistance
+-     * ({@code strength(-1.0F, 3600000.0F)}), so explosions normally cannot remove them.
+-     * We still override {@link Block#wasExploded(Level, BlockPos, Explosion)} explicitly so
+-     * that any modded or future explosion path that bypasses blast resistance (or any
+-     * custom {@link Explosion} implementation) cannot destroy either half of the door,
+-     * regardless of whether the door is open or closed at the moment of the blast.
+-     */
+-    @Override
+-    public boolean wasExploded(Level level, BlockPos pos, Explosion explosion) {
+-        return false;
+-    }
+-
+     private static boolean isNorthSouth(Direction direction) {
+         return direction == Direction.NORTH || direction == Direction.SOUTH;
+     }
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java b/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java
+index 47f973b..68eb509 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java
+@@ -3,6 +3,8 @@ package fr.jmproduction.pocketdoor.dimension;
+ import fr.jmproduction.pocketdoor.PocketDoorMod;
+ import fr.jmproduction.pocketdoor.block.ModBlocks;
+ import fr.jmproduction.pocketdoor.block.TypewriterBlock;
++import fr.jmproduction.pocketdoor.block.DeskBlock;
++import fr.jmproduction.pocketdoor.block.DeskPartBlock;
+ import fr.jmproduction.pocketdoor.block.ChairBlock;
+ import fr.jmproduction.pocketdoor.data.PocketDoorSavedData;
+ import fr.jmproduction.pocketdoor.data.PocketOfficeSavedData;

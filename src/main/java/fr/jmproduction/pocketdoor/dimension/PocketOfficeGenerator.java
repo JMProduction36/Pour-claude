@@ -3,6 +3,8 @@ package fr.jmproduction.pocketdoor.dimension;
 import fr.jmproduction.pocketdoor.PocketDoorMod;
 import fr.jmproduction.pocketdoor.block.ModBlocks;
 import fr.jmproduction.pocketdoor.block.TypewriterBlock;
+import fr.jmproduction.pocketdoor.block.DeskBlock;
+import fr.jmproduction.pocketdoor.block.DeskPartBlock;
 import fr.jmproduction.pocketdoor.block.ChairBlock;
 import fr.jmproduction.pocketdoor.data.PocketDoorSavedData;
 import fr.jmproduction.pocketdoor.data.PocketOfficeSavedData;
@@ -39,6 +41,28 @@ public final class PocketOfficeGenerator {
     public static final BlockPos POCKET_DOOR_LOWER = new BlockPos(8, FLOOR_Y + 1, 16);
 
     private PocketOfficeGenerator() {
+    }
+
+    /**
+     * Blocs invisibles juste derrière l'ouverture de la porte (hors du bureau, z = 17).
+     * Sans eux, un joueur qui franchit l'encadrement alors que le portail n'a pas (encore)
+     * téléporté tombe dans le vide. Le plan du portail est à z = 16,55 : le joueur est
+     * arrêté à z ~ 16,7, donc après le plan et la téléportation Immersive Portals se déclenche.
+     */
+    public static boolean isDoorBackstop(BlockPos pos) {
+        return pos.getX() == POCKET_DOOR_LOWER.getX()
+                && pos.getZ() == POCKET_DOOR_LOWER.getZ() + 1
+                && (pos.getY() == POCKET_DOOR_LOWER.getY() || pos.getY() == POCKET_DOOR_LOWER.getY() + 1);
+    }
+
+    private static void ensureDoorBackstop(ServerLevel level) {
+        BlockState barrier = Blocks.BARRIER.defaultBlockState();
+        for (int dy = 0; dy <= 1; dy++) {
+            BlockPos pos = new BlockPos(POCKET_DOOR_LOWER.getX(), POCKET_DOOR_LOWER.getY() + dy, POCKET_DOOR_LOWER.getZ() + 1);
+            if (!level.getBlockState(pos).is(Blocks.BARRIER)) {
+                place(level, pos, barrier);
+            }
+        }
     }
 
     public static boolean isInsideOffice(ServerLevel level, BlockPos pos) {
@@ -293,6 +317,9 @@ public final class PocketOfficeGenerator {
     private static void ensurePocketDoor(ServerLevel level) {
         BlockPos lower = POCKET_DOOR_LOWER;
         BlockPos upper = lower.above();
+
+        // Aussi pour les mondes générés par d'anciennes versions.
+        ensureDoorBackstop(level);
 
         // Do not overwrite a door that already exists: its open/closed state is synchronized
         // with the exterior door. Only install the missing pocket-side model in worlds

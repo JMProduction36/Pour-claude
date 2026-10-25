@@ -1,0 +1,518 @@
+diff --git a/src/client/java/fr/jmproduction/pocketdoor/client/PocketDoorClient.java b/src/client/java/fr/jmproduction/pocketdoor/client/PocketDoorClient.java
+index e1ee947..92d0a0a 100644
+--- a/src/client/java/fr/jmproduction/pocketdoor/client/PocketDoorClient.java
++++ b/src/client/java/fr/jmproduction/pocketdoor/client/PocketDoorClient.java
+@@ -59,7 +59,14 @@ public class PocketDoorClient implements ClientModInitializer {
+ 
+     @Override
+     public void onInitializeClient() {
+-        PocketMapState.load(Minecraft.getInstance());
++        // Le cache de carte est choisi à la connexion, quand le serveur envoie l'identifiant du monde.
++        ClientPlayNetworking.registerGlobalReceiver(ModNetworking.WORLD_ID,
++                (client, handler, buf, responseSender) -> {
++                    String id = buf.readUUID().toString();
++                    client.execute(() -> PocketMapState.setWorldId(client, id));
++                });
++        net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register(
++                (handler, client) -> PocketMapState.reset(client));
+         BlockEntityRenderers.register(ModBlockEntities.TYPEWRITER, TypewriterBlockEntityRenderer::new);
+         ModItemGroups.initialize();
+         BuiltinItemRendererRegistry.INSTANCE.register(ModBlocks.TYPEWRITER,
+@@ -112,11 +119,13 @@ public class PocketDoorClient implements ClientModInitializer {
+             // player has seen that door open and then closed it once. This replaces the
+             // old dedicated cartography table.
+             if (client.level != null && client.level.dimension().equals(PocketDimensions.POCKET_OFFICE)) {
+-                boolean open = client.level.getBlockState(PocketOfficeGenerator.POCKET_DOOR_LOWER)
+-                        .getValue(DoorBlock.OPEN);
++                // Ne jamais lire OPEN sans vérifier que le bloc est bien la porte :
++                // un bloc cassé/désynchronisé (air) faisait planter le client.
++                var doorState = client.level.getBlockState(PocketOfficeGenerator.POCKET_DOOR_LOWER);
++                boolean open = doorState.is(ModBlocks.POCKET_DOOR) && doorState.getValue(DoorBlock.OPEN);
+                 if (open) {
+                     pocketDoorWasObservedOpen = true;
+-                } else if (pocketDoorWasObservedOpen) {
++                } else if (pocketDoorWasObservedOpen && doorState.is(ModBlocks.POCKET_DOOR)) {
+                     teleportMapUnlocked = true;
+                 }
+             }
+@@ -158,7 +167,8 @@ public class PocketDoorClient implements ClientModInitializer {
+                 return InteractionResult.PASS;
+             }
+ 
+-            if (!level.getBlockState(PocketOfficeGenerator.POCKET_DOOR_LOWER).getValue(DoorBlock.OPEN)) {
++            var mapDoorState = level.getBlockState(PocketOfficeGenerator.POCKET_DOOR_LOWER);
++            if (mapDoorState.is(ModBlocks.POCKET_DOOR) && !mapDoorState.getValue(DoorBlock.OPEN)) {
+                 Minecraft.getInstance().setScreen(new PocketTeleportMapScreen());
+                 return InteractionResult.SUCCESS;
+             }
+diff --git a/src/client/java/fr/jmproduction/pocketdoor/client/PocketMapState.java b/src/client/java/fr/jmproduction/pocketdoor/client/PocketMapState.java
+index ece2517..921bbe0 100644
+--- a/src/client/java/fr/jmproduction/pocketdoor/client/PocketMapState.java
++++ b/src/client/java/fr/jmproduction/pocketdoor/client/PocketMapState.java
+@@ -28,8 +28,8 @@ public final class PocketMapState {
+     private static final int SAMPLE_RADIUS_CHUNKS = 4;
+     private static long lastCaptureTick = Long.MIN_VALUE;
+     private static long lastSaveTick = Long.MIN_VALUE;
+-    private static boolean loaded;
+-    private static String loadedWorldKey;
++    /** Identifiant unique du monde, reçu du serveur à la connexion (null tant qu'il n'est pas reçu). */
++    private static String worldId;
+     private static double lastOverworldX;
+     private static double lastOverworldZ;
+ 
+@@ -39,10 +39,9 @@ public final class PocketMapState {
+         ClientLevel level = client.level;
+         if (level == null || client.player == null) return;
+ 
+-        String worldKey = worldKey(client);
+-        if (!worldKey.equals(loadedWorldKey)) {
+-            load(client);
+-        }
++        // Tant que le serveur n'a pas envoyé l'identifiant du monde, on ne capture rien :
++        // sinon les chunks de ce monde seraient mélangés à ceux d'un autre.
++        if (worldId == null) return;
+ 
+         // JourneyMap-like discovery: as the player explores the Overworld, cache the
+         // terrain of nearby loaded chunks. Unexplored chunks remain black on the map.
+@@ -141,16 +140,28 @@ public final class PocketMapState {
+         return 0xFF6A6A6A;
+     }
+ 
+-    public static void load(Minecraft client) {
+-        String worldKey = worldKey(client);
+-        if (loaded && worldKey.equals(loadedWorldKey)) return;
++    /** Appelé à la connexion : bascule sur le cache propre à ce monde. */
++    public static void setWorldId(Minecraft client, String id) {
++        if (id.equals(worldId)) return;
++        reset(client);
++        worldId = id;
++        loadFromDisk(client);
++    }
++
++    /** Appelé à la déconnexion : sauvegarde puis vide tout (rien ne passe d'un monde à l'autre). */
++    public static void reset(Minecraft client) {
++        if (worldId != null && !CHUNKS.isEmpty()) {
++            save(client);
++        }
+         CHUNKS.clear();
+         lastCaptureTick = Long.MIN_VALUE;
+         lastSaveTick = Long.MIN_VALUE;
+         lastOverworldX = 0.0D;
+         lastOverworldZ = 0.0D;
+-        loadedWorldKey = worldKey;
+-        loaded = true;
++        worldId = null;
++    }
++
++    private static void loadFromDisk(Minecraft client) {
+         File file = file(client);
+         if (!file.isFile()) return;
+         try {
+@@ -170,6 +181,7 @@ public final class PocketMapState {
+     }
+ 
+     public static void save(Minecraft client) {
++        if (worldId == null) return;
+         CompoundTag root = new CompoundTag();
+         root.putDouble("LastX", lastOverworldX);
+         root.putDouble("LastZ", lastOverworldZ);
+@@ -190,30 +202,8 @@ public final class PocketMapState {
+         }
+     }
+ 
+-    private static String worldKey(Minecraft client) {
+-        if (client.getSingleplayerServer() != null) {
+-            Path worldPath = client.getSingleplayerServer().getWorldPath(
+-                    net.minecraft.world.level.storage.LevelResource.ROOT);
+-            return "world:" + client.gameDirectory.toPath().toAbsolutePath().relativize(worldPath.toAbsolutePath());
+-        }
+-        if (client.getCurrentServer() != null) {
+-            return "server:" + client.getCurrentServer().ip;
+-        }
+-        return "unknown";
+-    }
+-
+     private static File file(Minecraft client) {
+-        String key = worldKey(client);
+-        try {
+-            byte[] hash = MessageDigest.getInstance("SHA-256").digest(key.getBytes(StandardCharsets.UTF_8));
+-            StringBuilder name = new StringBuilder(64);
+-            for (byte value : hash) {
+-                name.append(Character.forDigit((value >> 4) & 0xF, 16));
+-                name.append(Character.forDigit(value & 0xF, 16));
+-            }
+-            return new File(client.gameDirectory, "config/pocketdoor_maps/" + name + ".dat");
+-        } catch (NoSuchAlgorithmException e) {
+-            throw new IllegalStateException(e);
+-        }
++        // worldId est un UUID généré par le serveur : sûr comme nom de fichier.
++        return new File(client.gameDirectory, "config/pocketdoor_maps/" + worldId + ".dat");
+     }
+ }
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/block/ModBlocks.java b/src/main/java/fr/jmproduction/pocketdoor/block/ModBlocks.java
+index 7a330d9..6f7747d 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/block/ModBlocks.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/block/ModBlocks.java
+@@ -8,11 +8,18 @@ import net.minecraft.world.item.Item;
+ import net.minecraft.world.level.block.Block;
+ import net.minecraft.world.level.block.Blocks;
+ import net.minecraft.world.level.block.state.BlockBehaviour;
++import net.minecraft.world.level.block.SoundType;
++import net.minecraft.world.level.material.Material;
++import net.minecraft.world.level.material.MaterialColor;
+ 
+ public final class ModBlocks {
+     public static final Block POCKET_DOOR = register(
+             "pocket_door",
+-            new PocketDoorBlock(BlockBehaviour.Properties.copy(Blocks.OAK_DOOR)
++            // Matériau METAL (couleur/son du bois) : DoorBlock.isWoodenDoor() est alors faux,
++            // donc les zombies (BreakDoorGoal) ne peuvent pas défoncer la porte.
++            new PocketDoorBlock(BlockBehaviour.Properties.of(Material.METAL, MaterialColor.WOOD)
++                    .sound(SoundType.WOOD)
++                    .noOcclusion()
+                     .strength(-1.0F, 3600000.0F)
+                     .noLootTable())
+     );
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/block/PocketDoorBlock.java b/src/main/java/fr/jmproduction/pocketdoor/block/PocketDoorBlock.java
+index f5dc3d7..d65a00d 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/block/PocketDoorBlock.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/block/PocketDoorBlock.java
+@@ -7,6 +7,9 @@ import net.minecraft.world.InteractionHand;
+ import net.minecraft.world.InteractionResult;
+ import net.minecraft.world.entity.player.Player;
+ import net.minecraft.world.level.BlockGetter;
++import net.minecraft.world.level.LevelAccessor;
++import net.minecraft.world.level.LevelReader;
++import net.minecraft.world.level.material.PushReaction;
+ import net.minecraft.world.level.Explosion;
+ import net.minecraft.world.level.Level;
+ import net.minecraft.world.level.block.Block;
+@@ -29,6 +32,43 @@ public class PocketDoorBlock extends DoorBlock {
+         super(properties);
+     }
+ 
++    /**
++     * La porte ne réagit jamais à la redstone : l'ouverture/fermeture est pilotée
++     * uniquement par {@code PocketDoorPortal} (clic droit), afin que les deux portes
++     * et les portails Immersive Portals restent synchronisés.
++     */
++    @Override
++    public void neighborChanged(BlockState state, Level level, BlockPos pos, Block block,
++                                BlockPos fromPos, boolean isMoving) {
++        // Volontairement vide (pas de POWERED, pas d'ouverture par redstone).
++    }
++
++    /**
++     * Vanilla supprime une porte quand son support disparaît ou quand l'autre moitié
++     * manque. Ici la porte ne doit JAMAIS disparaître toute seule (explosion qui détruit
++     * le bloc support, etc.) : on garde toujours l'état tel quel.
++     */
++    @Override
++    public BlockState updateShape(BlockState state, Direction direction, BlockState neighborState,
++                                  LevelAccessor level, BlockPos pos, BlockPos neighborPos) {
++        return state;
++    }
++
++    @Override
++    public boolean canSurvive(BlockState state, LevelReader level, BlockPos pos) {
++        return true;
++    }
++
++    @Override
++    public PushReaction getPistonPushReaction(BlockState state) {
++        return PushReaction.BLOCK;
++    }
++
++    @Override
++    public boolean dropFromExplosion(Explosion explosion) {
++        return false;
++    }
++
+     @Override
+     public InteractionResult use(BlockState state, Level level, BlockPos pos,
+                                  Player player, InteractionHand hand, BlockHitResult hit) {
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/data/PocketDoorSavedData.java b/src/main/java/fr/jmproduction/pocketdoor/data/PocketDoorSavedData.java
+index 3d94a8e..41f5c9b 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/data/PocketDoorSavedData.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/data/PocketDoorSavedData.java
+@@ -21,6 +21,7 @@ public class PocketDoorSavedData extends SavedData {
+     private static final String OWNER = "Owner";
+     private static final String HAS_TARGET = "HasTarget";
+     private static final String TARGET = "Target";
++    private static final String WORLD_ID = "WorldId";
+ 
+     private boolean hasDoor;
+     private BlockPos doorPos = BlockPos.ZERO;
+@@ -28,12 +29,16 @@ public class PocketDoorSavedData extends SavedData {
+     private UUID owner;
+     private boolean hasTarget;
+     private BlockPos teleportTarget = BlockPos.ZERO;
++    private UUID worldId;
+ 
+     public PocketDoorSavedData() {
+     }
+ 
+     public static PocketDoorSavedData load(CompoundTag tag) {
+         PocketDoorSavedData data = new PocketDoorSavedData();
++        if (tag.hasUUID(WORLD_ID)) {
++            data.worldId = tag.getUUID(WORLD_ID);
++        }
+         data.hasDoor = tag.getBoolean(HAS_DOOR);
+         if (data.hasDoor && tag.contains(POS)) {
+             data.doorPos = BlockPos.of(tag.getLong(POS));
+@@ -53,6 +58,9 @@ public class PocketDoorSavedData extends SavedData {
+ 
+     @Override
+     public CompoundTag save(CompoundTag tag) {
++        if (worldId != null) {
++            tag.putUUID(WORLD_ID, worldId);
++        }
+         tag.putBoolean(HAS_DOOR, hasDoor);
+         if (hasDoor) {
+             tag.putLong(POS, doorPos.asLong());
+@@ -77,6 +85,15 @@ public class PocketDoorSavedData extends SavedData {
+         );
+     }
+ 
++    /** Identifiant unique de CE monde (créé une fois, sauvegardé avec le monde). */
++    public UUID getOrCreateWorldId() {
++        if (worldId == null) {
++            worldId = UUID.randomUUID();
++            setDirty();
++        }
++        return worldId;
++    }
++
+     public boolean hasDoor() {
+         return hasDoor;
+     }
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketDoorPortal.java b/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketDoorPortal.java
+index 83fac67..7e2f7f3 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketDoorPortal.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketDoorPortal.java
+@@ -52,7 +52,7 @@ public final class PocketDoorPortal {
+             setOpen(level, lower, nextOpen);
+ 
+             ServerLevel exterior = getDoorLevel(level, data);
+-            if (exterior != null) {
++            if (exterior != null && exterior.getBlockState(data.getDoorPos()).is(ModBlocks.POCKET_DOOR)) {
+                 setOpen(exterior, data.getDoorPos(), nextOpen);
+                 ServerLevel pocket = player.getServer().getLevel(PocketDimensions.POCKET_OFFICE);
+                 if (pocket != null) {
+@@ -72,7 +72,8 @@ public final class PocketDoorPortal {
+         }
+ 
+         BlockPos lower = normalizeLower(level, clickedPos);
+-        if (!level.getBlockState(lower).is(ModBlocks.POCKET_DOOR)) {
++        if (!level.getBlockState(lower).is(ModBlocks.POCKET_DOOR)
++                || !level.getBlockState(lower.above()).is(ModBlocks.POCKET_DOOR)) {
+             return false;
+         }
+         if (!lower.equals(data.getDoorPos())) {
+@@ -351,7 +352,9 @@ public final class PocketDoorPortal {
+ 
+     private static BlockPos normalizeLower(ServerLevel level, BlockPos clickedPos) {
+         BlockPos lower = clickedPos;
+-        if (level.getBlockState(clickedPos).getValue(DoorBlock.HALF) == DoubleBlockHalf.UPPER) {
++        BlockState clicked = level.getBlockState(clickedPos);
++        // Ne jamais lire HALF sur un bloc qui n'est pas la porte (sinon IllegalArgumentException).
++        if (clicked.is(ModBlocks.POCKET_DOOR) && clicked.getValue(DoorBlock.HALF) == DoubleBlockHalf.UPPER) {
+             lower = clickedPos.below();
+         }
+         return lower;
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java b/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java
+index 01794b5..47f973b 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/dimension/PocketOfficeGenerator.java
+@@ -41,6 +41,28 @@ public final class PocketOfficeGenerator {
+     private PocketOfficeGenerator() {
+     }
+ 
++    /**
++     * Blocs invisibles juste derrière l'ouverture de la porte (hors du bureau, z = 17).
++     * Sans eux, un joueur qui franchit l'encadrement alors que le portail n'a pas (encore)
++     * téléporté tombe dans le vide. Le plan du portail est à z = 16,55 : le joueur est
++     * arrêté à z ~ 16,7, donc après le plan et la téléportation Immersive Portals se déclenche.
++     */
++    public static boolean isDoorBackstop(BlockPos pos) {
++        return pos.getX() == POCKET_DOOR_LOWER.getX()
++                && pos.getZ() == POCKET_DOOR_LOWER.getZ() + 1
++                && (pos.getY() == POCKET_DOOR_LOWER.getY() || pos.getY() == POCKET_DOOR_LOWER.getY() + 1);
++    }
++
++    private static void ensureDoorBackstop(ServerLevel level) {
++        BlockState barrier = Blocks.BARRIER.defaultBlockState();
++        for (int dy = 0; dy <= 1; dy++) {
++            BlockPos pos = new BlockPos(POCKET_DOOR_LOWER.getX(), POCKET_DOOR_LOWER.getY() + dy, POCKET_DOOR_LOWER.getZ() + 1);
++            if (!level.getBlockState(pos).is(Blocks.BARRIER)) {
++                place(level, pos, barrier);
++            }
++        }
++    }
++
+     public static boolean isInsideOffice(ServerLevel level, BlockPos pos) {
+         return level.dimension().equals(PocketDimensions.POCKET_OFFICE)
+                 && pos.getX() >= MIN_X && pos.getX() <= MAX_X
+@@ -294,6 +316,9 @@ public final class PocketOfficeGenerator {
+         BlockPos lower = POCKET_DOOR_LOWER;
+         BlockPos upper = lower.above();
+ 
++        // Aussi pour les mondes générés par d'anciennes versions.
++        ensureDoorBackstop(level);
++
+         // Do not overwrite a door that already exists: its open/closed state is synchronized
+         // with the exterior door. Only install the missing pocket-side model in worlds
+         // generated by older PocketDoor versions.
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/event/PocketDoorEvents.java b/src/main/java/fr/jmproduction/pocketdoor/event/PocketDoorEvents.java
+index 484d536..3fa9d48 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/event/PocketDoorEvents.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/event/PocketDoorEvents.java
+@@ -9,7 +9,11 @@ import fr.jmproduction.pocketdoor.dimension.PocketOfficeGenerator;
+ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerWorldEvents;
+ import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
++import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
+ import net.fabricmc.fabric.api.event.player.UseBlockCallback;
++import net.minecraft.world.InteractionResult;
++import net.minecraft.world.level.Level;
++import net.minecraft.core.BlockPos;
+ import net.minecraft.server.level.ServerLevel;
+ 
+ public final class PocketDoorEvents {
+@@ -28,6 +32,12 @@ public final class PocketDoorEvents {
+ 
+         ServerTickEvents.END_WORLD_TICK.register(PocketDoorEvents::tickWorld);
+ 
++        // Exécuté AUSSI côté client (événement partagé) : le joueur ne peut même pas
++        // commencer à casser la porte. Sans ça, en créatif, le client la supprime
++        // localement avant que le serveur ne refuse -> état désynchronisé -> crash.
++        AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) ->
++                isProtectedBlock(world, pos) ? InteractionResult.FAIL : InteractionResult.PASS);
++
+         PlayerBlockBreakEvents.BEFORE.register((world, player, pos, state, blockEntity) -> {
+             if (!(world instanceof ServerLevel level)) {
+                 return true;
+@@ -37,6 +47,10 @@ public final class PocketDoorEvents {
+                 return false; // O is the intentional removal key.
+             }
+ 
++            if (isProtectedBlock(level, pos)) {
++                return false;
++            }
++
+             PocketDoorSavedData data = PocketDoorSavedData.get(level);
+ 
+             // The exterior support block is protected so the door cannot collapse under it.
+@@ -64,6 +78,44 @@ public final class PocketDoorEvents {
+         // interior space remains a normal buildable area.
+     }
+ 
++    /** Porte (les deux moitiés) et blocs invisibles derrière la porte du bureau. */
++    private static boolean isProtectedBlock(Level world, BlockPos pos) {
++        if (world.getBlockState(pos).is(ModBlocks.POCKET_DOOR)) {
++            return true;
++        }
++        return world.dimension().equals(PocketDimensions.POCKET_OFFICE)
++                && PocketOfficeGenerator.isDoorBackstop(pos);
++    }
++
++    /**
++     * Filet de sécurité : si la porte extérieure a quand même disparu (commande, autre mod...),
++     * on retire les portails Immersive Portals et on oublie la porte au lieu de laisser un
++     * portail orphelin (ou un crash à la traversée).
++     */
++    private static void validateDoor(ServerLevel overworld, PocketDoorSavedData data) {
++        ServerLevel doorLevel = resolveDoorLevel(overworld, data);
++        if (doorLevel == null) {
++            return;
++        }
++        BlockPos pos = data.getDoorPos();
++        if (!doorLevel.hasChunkAt(pos)) {
++            return; // chunk non chargé : on ne force rien
++        }
++        boolean intact = doorLevel.getBlockState(pos).is(ModBlocks.POCKET_DOOR)
++                && doorLevel.getBlockState(pos.above()).is(ModBlocks.POCKET_DOOR);
++        if (intact) {
++            return;
++        }
++        ImmersivePortalBridge.cleanupAll(doorLevel, pos);
++        data.clearDoor();
++        ServerLevel pocket = overworld.getServer().getLevel(PocketDimensions.POCKET_OFFICE);
++        if (pocket != null) {
++            PocketDoorPortal.setOpen(pocket, PocketOfficeGenerator.POCKET_DOOR_LOWER, false);
++        }
++        fr.jmproduction.pocketdoor.PocketDoorMod.LOGGER.warn(
++                "Pocket Door missing at {} in {} : portals removed and door unregistered.", pos, doorLevel.dimension().location());
++    }
++
+     private static void tickWorld(ServerLevel level) {
+         if (level.dimension().equals(PocketDimensions.POCKET_OFFICE)) {
+             // No hunger drain in the pocket office.
+@@ -97,6 +149,13 @@ public final class PocketDoorEvents {
+             return;
+         }
+ 
++        if (level == overworld && level.getGameTime() % 20L == 0L) {
++            validateDoor(overworld, data);
++            if (!data.hasDoor()) {
++                return;
++            }
++        }
++
+         if (PocketDoorPortal.isDoorOpen(doorLevel, data.getDoorPos())) {
+             ServerLevel pocket = level.getServer().getLevel(PocketDimensions.POCKET_OFFICE);
+             if (pocket != null) {
+diff --git a/src/main/java/fr/jmproduction/pocketdoor/network/ModNetworking.java b/src/main/java/fr/jmproduction/pocketdoor/network/ModNetworking.java
+index 53c992d..4a353b5 100644
+--- a/src/main/java/fr/jmproduction/pocketdoor/network/ModNetworking.java
++++ b/src/main/java/fr/jmproduction/pocketdoor/network/ModNetworking.java
+@@ -48,6 +48,10 @@ public final class ModNetworking {
+     public static final ResourceLocation FINISH_TYPEWRITER =
+             new ResourceLocation(PocketDoorMod.MOD_ID, "finish_typewriter");
+ 
++    /** Serveur -> client : identifiant unique du monde, pour séparer les caches de carte. */
++    public static final ResourceLocation WORLD_ID =
++            new ResourceLocation(PocketDoorMod.MOD_ID, "world_id");
++
+     public static final ResourceLocation OPEN_TYPEWRITER =
+             new ResourceLocation(PocketDoorMod.MOD_ID, "open_typewriter");
+ 
+@@ -62,6 +66,12 @@ public final class ModNetworking {
+     }
+ 
+     public static void initialize() {
++        net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
++            FriendlyByteBuf buf = PacketByteBufs.create();
++            buf.writeUUID(PocketDoorSavedData.get(server.overworld()).getOrCreateWorldId());
++            sender.sendPacket(WORLD_ID, buf);
++        });
++
+         ServerPlayNetworking.registerGlobalReceiver(TOGGLE_DOOR, (server, player, handler, buf, responseSender) -> {
+             BlockPos target = buf.readBlockPos();
+             Direction hitFace = buf.readEnum(Direction.class);
+diff --git a/src/main/resources/data/minecraft/tags/blocks/dragon_immune.json b/src/main/resources/data/minecraft/tags/blocks/dragon_immune.json
+new file mode 100644
+index 0000000..1b3e528
+--- /dev/null
++++ b/src/main/resources/data/minecraft/tags/blocks/dragon_immune.json
+@@ -0,0 +1,7 @@
++{
++  "replace": false,
++  "values": [
++    "pocketdoor:pocket_door",
++    "pocketdoor:pocket_oak_planks"
++  ]
++}
+diff --git a/src/main/resources/data/minecraft/tags/blocks/wither_immune.json b/src/main/resources/data/minecraft/tags/blocks/wither_immune.json
+new file mode 100644
+index 0000000..1b3e528
+--- /dev/null
++++ b/src/main/resources/data/minecraft/tags/blocks/wither_immune.json
+@@ -0,0 +1,7 @@
++{
++  "replace": false,
++  "values": [
++    "pocketdoor:pocket_door",
++    "pocketdoor:pocket_oak_planks"
++  ]
++}

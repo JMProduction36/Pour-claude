@@ -59,7 +59,14 @@ public class PocketDoorClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        PocketMapState.load(Minecraft.getInstance());
+        // Le cache de carte est choisi à la connexion, quand le serveur envoie l'identifiant du monde.
+        ClientPlayNetworking.registerGlobalReceiver(ModNetworking.WORLD_ID,
+                (client, handler, buf, responseSender) -> {
+                    String id = buf.readUUID().toString();
+                    client.execute(() -> PocketMapState.setWorldId(client, id));
+                });
+        net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register(
+                (handler, client) -> PocketMapState.reset(client));
         BlockEntityRenderers.register(ModBlockEntities.TYPEWRITER, TypewriterBlockEntityRenderer::new);
         ModItemGroups.initialize();
         BuiltinItemRendererRegistry.INSTANCE.register(ModBlocks.TYPEWRITER,
@@ -112,11 +119,13 @@ public class PocketDoorClient implements ClientModInitializer {
             // player has seen that door open and then closed it once. This replaces the
             // old dedicated cartography table.
             if (client.level != null && client.level.dimension().equals(PocketDimensions.POCKET_OFFICE)) {
-                boolean open = client.level.getBlockState(PocketOfficeGenerator.POCKET_DOOR_LOWER)
-                        .getValue(DoorBlock.OPEN);
+                // Ne jamais lire OPEN sans vérifier que le bloc est bien la porte :
+                // un bloc cassé/désynchronisé (air) faisait planter le client.
+                var doorState = client.level.getBlockState(PocketOfficeGenerator.POCKET_DOOR_LOWER);
+                boolean open = doorState.is(ModBlocks.POCKET_DOOR) && doorState.getValue(DoorBlock.OPEN);
                 if (open) {
                     pocketDoorWasObservedOpen = true;
-                } else if (pocketDoorWasObservedOpen) {
+                } else if (pocketDoorWasObservedOpen && doorState.is(ModBlocks.POCKET_DOOR)) {
                     teleportMapUnlocked = true;
                 }
             }
@@ -158,7 +167,8 @@ public class PocketDoorClient implements ClientModInitializer {
                 return InteractionResult.PASS;
             }
 
-            if (!level.getBlockState(PocketOfficeGenerator.POCKET_DOOR_LOWER).getValue(DoorBlock.OPEN)) {
+            var mapDoorState = level.getBlockState(PocketOfficeGenerator.POCKET_DOOR_LOWER);
+            if (mapDoorState.is(ModBlocks.POCKET_DOOR) && !mapDoorState.getValue(DoorBlock.OPEN)) {
                 Minecraft.getInstance().setScreen(new PocketTeleportMapScreen());
                 return InteractionResult.SUCCESS;
             }

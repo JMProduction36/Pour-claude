@@ -9,7 +9,11 @@ import fr.jmproduction.pocketdoor.dimension.PocketOfficeGenerator;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerWorldEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
+import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.level.Level;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 
 public final class PocketDoorEvents {
@@ -28,6 +32,12 @@ public final class PocketDoorEvents {
 
         ServerTickEvents.END_WORLD_TICK.register(PocketDoorEvents::tickWorld);
 
+        // Exécuté AUSSI côté client (événement partagé) : le joueur ne peut même pas
+        // commencer à casser la porte. Sans ça, en créatif, le client la supprime
+        // localement avant que le serveur ne refuse -> état désynchronisé -> crash.
+        AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) ->
+                isProtectedBlock(world, pos) ? InteractionResult.FAIL : InteractionResult.PASS);
+
         PlayerBlockBreakEvents.BEFORE.register((world, player, pos, state, blockEntity) -> {
             if (!(world instanceof ServerLevel level)) {
                 return true;
@@ -35,6 +45,10 @@ public final class PocketDoorEvents {
 
             if (state.is(ModBlocks.POCKET_DOOR)) {
                 return false; // O is the intentional removal key.
+            }
+
+            if (isProtectedBlock(level, pos)) {
+                return false;
             }
 
             PocketDoorSavedData data = PocketDoorSavedData.get(level);
@@ -62,6 +76,44 @@ public final class PocketDoorEvents {
         // Block placement is allowed inside the pocket office.
         // The protection above only blocks destruction of the permanent shell;
         // interior space remains a normal buildable area.
+    }
+
+    /** Porte (les deux moitiés) et blocs invisibles derrière la porte du bureau. */
+    private static boolean isProtectedBlock(Level world, BlockPos pos) {
+        if (world.getBlockState(pos).is(ModBlocks.POCKET_DOOR)) {
+            return true;
+        }
+        return world.dimension().equals(PocketDimensions.POCKET_OFFICE)
+                && PocketOfficeGenerator.isDoorBackstop(pos);
+    }
+
+    /**
+     * Filet de sécurité : si la porte extérieure a quand même disparu (commande, autre mod...),
+     * on retire les portails Immersive Portals et on oublie la porte au lieu de laisser un
+     * portail orphelin (ou un crash à la traversée).
+     */
+    private static void validateDoor(ServerLevel overworld, PocketDoorSavedData data) {
+        ServerLevel doorLevel = resolveDoorLevel(overworld, data);
+        if (doorLevel == null) {
+            return;
+        }
+        BlockPos pos = data.getDoorPos();
+        if (!doorLevel.hasChunkAt(pos)) {
+            return; // chunk non chargé : on ne force rien
+        }
+        boolean intact = doorLevel.getBlockState(pos).is(ModBlocks.POCKET_DOOR)
+                && doorLevel.getBlockState(pos.above()).is(ModBlocks.POCKET_DOOR);
+        if (intact) {
+            return;
+        }
+        ImmersivePortalBridge.cleanupAll(doorLevel, pos);
+        data.clearDoor();
+        ServerLevel pocket = overworld.getServer().getLevel(PocketDimensions.POCKET_OFFICE);
+        if (pocket != null) {
+            PocketDoorPortal.setOpen(pocket, PocketOfficeGenerator.POCKET_DOOR_LOWER, false);
+        }
+        fr.jmproduction.pocketdoor.PocketDoorMod.LOGGER.warn(
+                "Pocket Door missing at {} in {} : portals removed and door unregistered.", pos, doorLevel.dimension().location());
     }
 
     private static void tickWorld(ServerLevel level) {
@@ -95,6 +147,13 @@ public final class PocketDoorEvents {
         ServerLevel doorLevel = resolveDoorLevel(overworld, data);
         if (doorLevel == null) {
             return;
+        }
+
+        if (level == overworld && level.getGameTime() % 20L == 0L) {
+            validateDoor(overworld, data);
+            if (!data.hasDoor()) {
+                return;
+            }
         }
 
         if (PocketDoorPortal.isDoorOpen(doorLevel, data.getDoorPos())) {

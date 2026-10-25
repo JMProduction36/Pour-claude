@@ -7,6 +7,9 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.LevelAccessor;
+import net.minecraft.world.level.LevelReader;
+import net.minecraft.world.level.material.PushReaction;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -27,6 +30,43 @@ public class PocketDoorBlock extends DoorBlock {
 
     public PocketDoorBlock(Properties properties) {
         super(properties);
+    }
+
+    /**
+     * La porte ne réagit jamais à la redstone : l'ouverture/fermeture est pilotée
+     * uniquement par {@code PocketDoorPortal} (clic droit), afin que les deux portes
+     * et les portails Immersive Portals restent synchronisés.
+     */
+    @Override
+    public void neighborChanged(BlockState state, Level level, BlockPos pos, Block block,
+                                BlockPos fromPos, boolean isMoving) {
+        // Volontairement vide (pas de POWERED, pas d'ouverture par redstone).
+    }
+
+    /**
+     * Vanilla supprime une porte quand son support disparaît ou quand l'autre moitié
+     * manque. Ici la porte ne doit JAMAIS disparaître toute seule (explosion qui détruit
+     * le bloc support, etc.) : on garde toujours l'état tel quel.
+     */
+    @Override
+    public BlockState updateShape(BlockState state, Direction direction, BlockState neighborState,
+                                  LevelAccessor level, BlockPos pos, BlockPos neighborPos) {
+        return state;
+    }
+
+    @Override
+    public boolean canSurvive(BlockState state, LevelReader level, BlockPos pos) {
+        return true;
+    }
+
+    @Override
+    public PushReaction getPistonPushReaction(BlockState state) {
+        return PushReaction.BLOCK;
+    }
+
+    @Override
+    public boolean dropFromExplosion(Explosion explosion) {
+        return false;
     }
 
     @Override
@@ -66,19 +106,6 @@ public class PocketDoorBlock extends DoorBlock {
     @Override
     public boolean hasDynamicShape() {
         return true;
-    }
-
-    /**
-     * Pocket doors are configured with infinite blast resistance
-     * ({@code strength(-1.0F, 3600000.0F)}), so explosions normally cannot remove them.
-     * We still override {@link Block#wasExploded(Level, BlockPos, Explosion)} explicitly so
-     * that any modded or future explosion path that bypasses blast resistance (or any
-     * custom {@link Explosion} implementation) cannot destroy either half of the door,
-     * regardless of whether the door is open or closed at the moment of the blast.
-     */
-    @Override
-    public boolean wasExploded(Level level, BlockPos pos, Explosion explosion) {
-        return false;
     }
 
     private static boolean isNorthSouth(Direction direction) {

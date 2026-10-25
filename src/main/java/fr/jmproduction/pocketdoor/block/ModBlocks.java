@@ -7,12 +7,20 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.GlassBlock;
 import net.minecraft.world.level.block.state.BlockBehaviour;
+import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.material.Material;
+import net.minecraft.world.level.material.MaterialColor;
 
 public final class ModBlocks {
     public static final Block POCKET_DOOR = register(
             "pocket_door",
-            new PocketDoorBlock(BlockBehaviour.Properties.copy(Blocks.OAK_DOOR)
+            // Matériau METAL (couleur/son du bois) : DoorBlock.isWoodenDoor() est alors faux,
+            // donc les zombies (BreakDoorGoal) ne peuvent pas défoncer la porte.
+            new PocketDoorBlock(BlockBehaviour.Properties.of(Material.METAL, MaterialColor.WOOD)
+                    .sound(SoundType.WOOD)
+                    .noOcclusion()
                     .strength(-1.0F, 3600000.0F)
                     .noLootTable())
     );
@@ -21,6 +29,14 @@ public final class ModBlocks {
     public static final Block POCKET_OAK_PLANKS = registerBlockOnly(
             "pocket_oak_planks",
             new PocketWallBlock(BlockBehaviour.Properties.copy(Blocks.OAK_PLANKS)
+                    .strength(-1.0F, 3600000.0F)
+                    .noLootTable())
+    );
+
+    /** Vitre du bureau : insensible au minage et aux explosions. */
+    public static final Block POCKET_GLASS = registerBlockOnly(
+            "pocket_glass",
+            new GlassBlock(BlockBehaviour.Properties.copy(Blocks.GLASS)
                     .strength(-1.0F, 3600000.0F)
                     .noLootTable())
     );

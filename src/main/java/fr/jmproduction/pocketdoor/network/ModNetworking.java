@@ -48,6 +48,10 @@ public final class ModNetworking {
     public static final ResourceLocation FINISH_TYPEWRITER =
             new ResourceLocation(PocketDoorMod.MOD_ID, "finish_typewriter");
 
+    /** Serveur -> client : identifiant unique du monde, pour séparer les caches de carte. */
+    public static final ResourceLocation WORLD_ID =
+            new ResourceLocation(PocketDoorMod.MOD_ID, "world_id");
+
     public static final ResourceLocation OPEN_TYPEWRITER =
             new ResourceLocation(PocketDoorMod.MOD_ID, "open_typewriter");
 
@@ -62,6 +66,12 @@ public final class ModNetworking {
     }
 
     public static void initialize() {
+        net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
+            FriendlyByteBuf buf = PacketByteBufs.create();
+            buf.writeUUID(PocketDoorSavedData.get(server.overworld()).getOrCreateWorldId());
+            sender.sendPacket(WORLD_ID, buf);
+        });
+
         ServerPlayNetworking.registerGlobalReceiver(TOGGLE_DOOR, (server, player, handler, buf, responseSender) -> {
             BlockPos target = buf.readBlockPos();
             Direction hitFace = buf.readEnum(Direction.class);

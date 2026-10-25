@@ -28,8 +28,8 @@ public final class PocketMapState {
     private static final int SAMPLE_RADIUS_CHUNKS = 4;
     private static long lastCaptureTick = Long.MIN_VALUE;
     private static long lastSaveTick = Long.MIN_VALUE;
-    private static boolean loaded;
-    private static String loadedWorldKey;
+    /** Identifiant unique du monde, reçu du serveur à la connexion (null tant qu'il n'est pas reçu). */
+    private static String worldId;
     private static double lastOverworldX;
     private static double lastOverworldZ;
 
@@ -39,10 +39,9 @@ public final class PocketMapState {
         ClientLevel level = client.level;
         if (level == null || client.player == null) return;
 
-        String worldKey = worldKey(client);
-        if (!worldKey.equals(loadedWorldKey)) {
-            load(client);
-        }
+        // Tant que le serveur n'a pas envoyé l'identifiant du monde, on ne capture rien :
+        // sinon les chunks de ce monde seraient mélangés à ceux d'un autre.
+        if (worldId == null) return;
 
         // JourneyMap-like discovery: as the player explores the Overworld, cache the
         // terrain of nearby loaded chunks. Unexplored chunks remain black on the map.
@@ -141,16 +140,28 @@ public final class PocketMapState {
         return 0xFF6A6A6A;
     }
 
-    public static void load(Minecraft client) {
-        String worldKey = worldKey(client);
-        if (loaded && worldKey.equals(loadedWorldKey)) return;
+    /** Appelé à la connexion : bascule sur le cache propre à ce monde. */
+    public static void setWorldId(Minecraft client, String id) {
+        if (id.equals(worldId)) return;
+        reset(client);
+        worldId = id;
+        loadFromDisk(client);
+    }
+
+    /** Appelé à la déconnexion : sauvegarde puis vide tout (rien ne passe d'un monde à l'autre). */
+    public static void reset(Minecraft client) {
+        if (worldId != null && !CHUNKS.isEmpty()) {
+            save(client);
+        }
         CHUNKS.clear();
         lastCaptureTick = Long.MIN_VALUE;
         lastSaveTick = Long.MIN_VALUE;
         lastOverworldX = 0.0D;
         lastOverworldZ = 0.0D;
-        loadedWorldKey = worldKey;
-        loaded = true;
+        worldId = null;
+    }
+
+    private static void loadFromDisk(Minecraft client) {
         File file = file(client);
         if (!file.isFile()) return;
         try {
@@ -170,6 +181,7 @@ public final class PocketMapState {
     }
 
     public static void save(Minecraft client) {
+        if (worldId == null) return;
         CompoundTag root = new CompoundTag();
         root.putDouble("LastX", lastOverworldX);
         root.putDouble("LastZ", lastOverworldZ);
@@ -190,30 +202,8 @@ public final class PocketMapState {
         }
     }
 
-    private static String worldKey(Minecraft client) {
-        if (client.getSingleplayerServer() != null) {
-            Path worldPath = client.getSingleplayerServer().getWorldPath(
-                    net.minecraft.world.level.storage.LevelResource.ROOT);
-            return "world:" + client.gameDirectory.toPath().toAbsolutePath().relativize(worldPath.toAbsolutePath());
-        }
-        if (client.getCurrentServer() != null) {
-            return "server:" + client.getCurrentServer().ip;
-        }
-        return "unknown";
-    }
-
     private static File file(Minecraft client) {
-        String key = worldKey(client);
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-256").digest(key.getBytes(StandardCharsets.UTF_8));
-            StringBuilder name = new StringBuilder(64);
-            for (byte value : hash) {
-                name.append(Character.forDigit((value >> 4) & 0xF, 16));
-                name.append(Character.forDigit(value & 0xF, 16));
-            }
-            return new File(client.gameDirectory, "config/pocketdoor_maps/" + name + ".dat");
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
+        // worldId est un UUID généré par le serveur : sûr comme nom de fichier.
+        return new File(client.gameDirectory, "config/pocketdoor_maps/" + worldId + ".dat");
     }
 }

@@ -52,7 +52,7 @@ public final class PocketDoorPortal {
             setOpen(level, lower, nextOpen);
 
             ServerLevel exterior = getDoorLevel(level, data);
-            if (exterior != null) {
+            if (exterior != null && exterior.getBlockState(data.getDoorPos()).is(ModBlocks.POCKET_DOOR)) {
                 setOpen(exterior, data.getDoorPos(), nextOpen);
                 ServerLevel pocket = player.getServer().getLevel(PocketDimensions.POCKET_OFFICE);
                 if (pocket != null) {
@@ -72,7 +72,8 @@ public final class PocketDoorPortal {
         }
 
         BlockPos lower = normalizeLower(level, clickedPos);
-        if (!level.getBlockState(lower).is(ModBlocks.POCKET_DOOR)) {
+        if (!level.getBlockState(lower).is(ModBlocks.POCKET_DOOR)
+                || !level.getBlockState(lower.above()).is(ModBlocks.POCKET_DOOR)) {
             return false;
         }
         if (!lower.equals(data.getDoorPos())) {
@@ -351,7 +352,9 @@ public final class PocketDoorPortal {
 
     private static BlockPos normalizeLower(ServerLevel level, BlockPos clickedPos) {
         BlockPos lower = clickedPos;
-        if (level.getBlockState(clickedPos).getValue(DoorBlock.HALF) == DoubleBlockHalf.UPPER) {
+        BlockState clicked = level.getBlockState(clickedPos);
+        // Ne jamais lire HALF sur un bloc qui n'est pas la porte (sinon IllegalArgumentException).
+        if (clicked.is(ModBlocks.POCKET_DOOR) && clicked.getValue(DoorBlock.HALF) == DoubleBlockHalf.UPPER) {
             lower = clickedPos.below();
         }
         return lower;

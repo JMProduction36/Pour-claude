@@ -21,6 +21,7 @@ public class PocketDoorSavedData extends SavedData {
     private static final String OWNER = "Owner";
     private static final String HAS_TARGET = "HasTarget";
     private static final String TARGET = "Target";
+    private static final String WORLD_ID = "WorldId";
 
     private boolean hasDoor;
     private BlockPos doorPos = BlockPos.ZERO;
@@ -28,12 +29,16 @@ public class PocketDoorSavedData extends SavedData {
     private UUID owner;
     private boolean hasTarget;
     private BlockPos teleportTarget = BlockPos.ZERO;
+    private UUID worldId;
 
     public PocketDoorSavedData() {
     }
 
     public static PocketDoorSavedData load(CompoundTag tag) {
         PocketDoorSavedData data = new PocketDoorSavedData();
+        if (tag.hasUUID(WORLD_ID)) {
+            data.worldId = tag.getUUID(WORLD_ID);
+        }
         data.hasDoor = tag.getBoolean(HAS_DOOR);
         if (data.hasDoor && tag.contains(POS)) {
             data.doorPos = BlockPos.of(tag.getLong(POS));
@@ -53,6 +58,9 @@ public class PocketDoorSavedData extends SavedData {
 
     @Override
     public CompoundTag save(CompoundTag tag) {
+        if (worldId != null) {
+            tag.putUUID(WORLD_ID, worldId);
+        }
         tag.putBoolean(HAS_DOOR, hasDoor);
         if (hasDoor) {
             tag.putLong(POS, doorPos.asLong());
@@ -75,6 +83,15 @@ public class PocketDoorSavedData extends SavedData {
                 PocketDoorSavedData::new,
                 DATA_ID
         );
+    }
+
+    /** Identifiant unique de CE monde (créé une fois, sauvegardé avec le monde). */
+    public UUID getOrCreateWorldId() {
+        if (worldId == null) {
+            worldId = UUID.randomUUID();
+            setDirty();
+        }
+        return worldId;
     }
 
     public boolean hasDoor() {
