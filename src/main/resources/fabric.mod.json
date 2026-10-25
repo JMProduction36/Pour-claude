@@ -8,7 +8,9 @@
   "license": "MIT",
   "environment": "*",
   "entrypoints": {
-    "main": ["fr.jmproduction.pocketdoor.PocketDoorMod"],
+    "main": [
+      "fr.jmproduction.pocketdoor.PocketDoorMod"
+    ],
     "client": [
       "fr.jmproduction.pocketdoor.client.PocketDoorClient",
       "fr.jmproduction.pocketdoor.client.PocketGlassClient",
@@ -19,8 +21,6 @@
     "fabricloader": ">=0.19.5",
     "minecraft": "~1.19.2",
     "java": ">=17",
-    "fabric-api": "*",
-    "imm_ptl_core": "2.3.2",
-    "q_misc_util": "2.3.2"
+    "fabric-api": "*"
   }
 }
