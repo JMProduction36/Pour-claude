@@ -16,7 +16,7 @@ public final class ModItemGroups {
     private static boolean initialized;
 
     public static final CreativeModeTab POCKETDOOR = FabricItemGroupBuilder.create(
-            new ResourceLocation(PocketDoorMod.MOD_ID, "items"))
+                    new ResourceLocation(PocketDoorMod.MOD_ID, "items"))
             .icon(() -> new ItemStack(ModBlocks.TYPEWRITER))
             .appendItems((stacks, group) -> {
                 initialize();
@@ -34,9 +34,17 @@ public final class ModItemGroups {
         ITEMS.add(block);
     }
 
+    /**
+     * LISTE MANUELLE DE L'ONGLET.
+     * Ajouter un objet : ajouter une ligne add(ModBlocks.XXX);
+     * Retirer un objet : supprimer ou commenter sa ligne.
+     * L'ordre des lignes = l'ordre dans l'onglet.
+     */
     public static void initialize() {
         if (initialized) return;
-        add(ModBlocks.POCKET_DOOR);
+        add(ModBlocks.TYPEWRITER);
+        add(ModBlocks.DESK);
+        add(ModBlocks.POCKET_CHAIR);
         initialized = true;
     }
 
